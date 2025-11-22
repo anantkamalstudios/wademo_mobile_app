@@ -1,0 +1,12 @@
+<resources>
+    <!-- Your app name -->
+    <string name="app_name">new_test_app</string>
+
+    <!-- Facebook credentials -->
+    <string name="facebook_app_id">444556051679202</string>
+    <string name="facebook_client_token">444556051679202
+</string>
+
+    <!-- Facebook login protocol scheme -->
+    <string name="fb_login_protocol_scheme">fb444556051679202</string>
+</resources>
