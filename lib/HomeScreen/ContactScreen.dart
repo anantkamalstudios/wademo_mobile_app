@@ -226,7 +226,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ),
             child: Row(
               children: [
-                // 👇 Show checkbox only when selectionMode is ON
                 selectionMode
                     ? Checkbox(
                   value: selectedIndexes.contains(index),
@@ -248,25 +247,31 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 const CircleAvatar(child: Icon(Icons.person)),
                 const SizedBox(width: 10),
 
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      contact["name"],
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                // FIX OVERFLOW HERE
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        contact["name"],
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      contact["phone"],
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
+                      SizedBox(height: 3),
+                      Text(
+                        contact["phone"],
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+
           ),
         );
       },

@@ -36,6 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ImagePicker _picker = ImagePicker();
   File? _selectedImage;
   File? _selectedFile;
+  Timer? refreshTimer;
 
   bool _isLoadingMore = false;  // if currently fetching more chats
   int _currentPage = 1;         // current page
@@ -91,11 +92,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadTokenAndFetchChats();
 
     // 🔹 Chat list auto-refresh
-    Timer.periodic(Duration(seconds: 4), (timer) {
-      if (!_isChatOpen) {
-        _fetchConversationsAndPopulate();
-      }
+    refreshTimer = Timer.periodic(Duration(seconds: 5), (timer) {
+      if (!mounted) return;  // <--- IMPORTANT
+      _fetchConversationsAndPopulate();
     });
+
 
     // 🔹 Conversation auto-refresh
     Timer.periodic(Duration(seconds: 3), (timer) {
@@ -198,6 +199,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _fetchConversationsAndPopulate({bool loadMore = false}) async {
     if (_isLoadingMore || (!_hasMore && loadMore)) return;
+
+    if (!mounted) return;
 
     setState(() {
       _isLoadingMore = true;
@@ -302,91 +305,93 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-        appBar: _previewImagePath != null
-            ? null   // Hide AppBar during preview
-            : AppBar(
+    return SafeArea(
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-        titleSpacing: 0,
-        title: _isChatOpen
-            ? _chatAppBar()
-            : _isSearching
-            ? _buildSearchField()
-            : const Text(
-          'Chats',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
+          appBar: _previewImagePath != null
+              ? null   // Hide AppBar during preview
+              : AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          titleSpacing: 0,
+          title: _isChatOpen
+              ? _chatAppBar()
+              : _isSearching
+              ? _buildSearchField()
+              : const Text(
+            'Chats',
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+              fontSize: 22,
+            ),
           ),
+          actions: _isChatOpen
+              ? [
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.teal),
+              onPressed: () {},
+            ),
+          ]
+              : [
+            if (!_isSearching)
+              IconButton(
+                icon: const Icon(Icons.search, color: Colors.black54),
+                onPressed: () {
+                  setState(() {
+                    _isSearching = true;
+                  });
+                },
+              ),
+            if (_isSearching)
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.black54),
+                onPressed: () {
+                  setState(() {
+                    _isSearching = false;
+                    _searchQuery = "";
+                  });
+                },
+              ),
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.black54),
+              onPressed: () {},
+            ),
+          ],
+          leading: _isChatOpen
+              ? IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.teal),
+            onPressed: () {
+              setState(() {
+                _isChatOpen = false;
+                _showQuickOptions = false;
+                _showAttachmentOptions = false;
+                _selectedImage = null;
+                _selectedFile = null;
+                _selectedPhone = null;
+              });
+              widget.onChatStateChange?.call(false);
+            },
+          )
+              : _isSearching
+              ? IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.black54),
+            onPressed: () {
+              setState(() {
+                _isSearching = false;
+                _searchQuery = "";
+              });
+            },
+          )
+              : null,
         ),
-        actions: _isChatOpen
-            ? [
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.teal),
-            onPressed: () {},
-          ),
-        ]
-            : [
-          if (!_isSearching)
-            IconButton(
-              icon: const Icon(Icons.search, color: Colors.black54),
-              onPressed: () {
-                setState(() {
-                  _isSearching = true;
-                });
-              },
-            ),
-          if (_isSearching)
-            IconButton(
-              icon: const Icon(Icons.close, color: Colors.black54),
-              onPressed: () {
-                setState(() {
-                  _isSearching = false;
-                  _searchQuery = "";
-                });
-              },
-            ),
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.black54),
-            onPressed: () {},
-          ),
-        ],
-        leading: _isChatOpen
-            ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.teal),
-          onPressed: () {
-            setState(() {
-              _isChatOpen = false;
-              _showQuickOptions = false;
-              _showAttachmentOptions = false;
-              _selectedImage = null;
-              _selectedFile = null;
-              _selectedPhone = null;
-            });
-            widget.onChatStateChange?.call(false);
-          },
-        )
-            : _isSearching
-            ? IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black54),
-          onPressed: () {
-            setState(() {
-              _isSearching = false;
-              _searchQuery = "";
-            });
-          },
-        )
-            : null,
-      ),
-      body: _isChatOpen ? _chatView() : _chatListView(filteredChats),
-      // bottomNavigationBar:
-      // _isChatOpen && _previewImagePath == null
-      //     // ? _chatBottomBar()
-      //     : null,
+        body: _isChatOpen ? _chatView() : _chatListView(filteredChats),
+        // bottomNavigationBar:
+        // _isChatOpen && _previewImagePath == null
+        //     // ? _chatBottomBar()
+        //     : null,
 
+      ),
     );
   }
 

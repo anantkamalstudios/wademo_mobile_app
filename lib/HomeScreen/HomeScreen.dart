@@ -366,68 +366,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const SizedBox(height: 12),
 
-                    _CardContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Campaign Performance",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 8),
-                          const Text(
-                            "Geographical distribution of your last campaign",
-                            style: TextStyle(color: Colors.black54, fontSize: 13),
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () {},
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: midGreen,
-                                padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8)),
-                              ),
-                              child: const Text(
-                                "View Full Reports",
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
 
-                    const SizedBox(height: 16),
 
-                    _CardContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text("WhatsApp Business Details",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          SizedBox(height: 12),
-                          Text("Anantkamal Studios",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          SizedBox(height: 6),
-                          Text("Display Name Status: APPROVED",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("WhatsApp Number: +91 76202 37235",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Quality Rating: GREEN",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Messaging Limit: TIER_1K",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Can Send Message: AVAILABLE",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Organization: Sachin k",
-                              style: TextStyle(color: Colors.black54)),
-                        ],
-                      ),
-                    ),
+
 
                     const SizedBox(height: 16),
                     _CardContainer(
