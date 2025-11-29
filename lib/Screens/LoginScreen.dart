@@ -2,12 +2,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:firebase_auth/firebase_auth.dart';
 import '../Services/authService.dart';
 import 'ForgotPasswordScreen.dart';
 import '../HomeScreen/HomeScreen.dart';
-import 'SignupScreen.dart';
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,26 +24,27 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
 
   // -------------------------------------------------------------------------
-  //  🔹 ONLY THIS PART IS CHANGED — YOUR EMAIL + PASSWORD API LOGIN
+  //  🔹 ONLY ADDED PRINT STATEMENTS HERE
   // -------------------------------------------------------------------------
   Future<void> _signIn() async {
     setState(() => _loading = true);
 
-    final url = Uri.parse("https://anantkamalwademo.online/api/login");
+    const String apiUrl = "https://anantkamalwademo.online/api/login";
 
     try {
       final response = await http.post(
-        url,
-        body: {
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
           "email": _emailController.text.trim(),
           "password": _passwordController.text.trim(),
-        },
+        }),
       );
 
-      final data = json.decode(response.body);
+      final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 && data["status"] == true) {
-        SharedPreferences prefs = await SharedPreferences.getInstance();
+        final prefs = await SharedPreferences.getInstance();
         await prefs.setString("token", data["token"]);
         await prefs.setInt("id", data["id"]);
         await prefs.setString("name", data["name"]);
@@ -56,13 +55,11 @@ class _LoginScreenState extends State<LoginScreen> {
           context,
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
-
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data["message"] ?? "Login failed")),
+          SnackBar(content: Text(data["errMsg"] ?? "Login failed")),
         );
       }
-
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error: $e")),
@@ -72,43 +69,49 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = false);
   }
 
-  // -------------------------------------------------------------------------
-  // 🔹 GOOGLE LOGIN — UNTOUCHED
-  // -------------------------------------------------------------------------
+
   Future<void> _signInWithGoogle() async {
+    print("🔵 Google Sign-In Started");
+
     try {
       await _auth.signInWithGoogle();
+      print("🟢 Google Sign-In Success");
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     } catch (e) {
+      print("⛔ Google Sign-In Error: $e");
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Google sign-in failed: $e")),
       );
     }
   }
 
-  // -------------------------------------------------------------------------
-  // 🔹 FACEBOOK LOGIN — UNTOUCHED
-  // -------------------------------------------------------------------------
+
   Future<void> _signInWithFacebook() async {
+    print("🔵 Facebook Sign-In Started");
+
     try {
       await _auth.signInWithFacebook();
+      print("🟢 Facebook Sign-In Success");
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
     } catch (e) {
+      print("⛔ Facebook Sign-In Error: $e");
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Facebook sign-in failed: $e")),
       );
     }
   }
 
-  // -------------------------------------------------------------------------
-  //   UI — NOT CHANGED
-  // -------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -117,50 +120,61 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+
             const SizedBox(height: 40),
+
+            Image.asset(
+              "assets/black_logo.png",
+              height: 100,
+              fit: BoxFit.contain,
+            ),
+
+            const SizedBox(height: 20),
+
             const Text(
               "Sign in or Create an account",
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
+
             const SizedBox(height: 30),
 
-            ElevatedButton.icon(
-              onPressed: _signInWithGoogle,
-              icon: Image.asset(
-                'assets/google.png',
-                height: 24,
-                width: 24,
-              ),
-              label: const Text("Sign in with Google"),
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.black87,
-                backgroundColor: Colors.grey.shade200,
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
+            // ElevatedButton.icon(
+            //   onPressed: _signInWithGoogle,
+            //   icon: Image.asset(
+            //     'assets/google.png',
+            //     height: 24,
+            //     width: 24,
+            //   ),
+            //   label: const Text("Sign in with Google"),
+            //   style: ElevatedButton.styleFrom(
+            //     foregroundColor: Colors.black87,
+            //     backgroundColor: Colors.grey.shade200,
+            //     minimumSize: const Size(double.infinity, 50),
+            //     shape: RoundedRectangleBorder(
+            //       borderRadius: BorderRadius.circular(8),
+            //     ),
+            //   ),
+            // ),
 
             const SizedBox(height: 12),
 
-            ElevatedButton.icon(
-              onPressed: _signInWithFacebook,
-              icon: Image.asset(
-                'assets/facebook.png',
-                height: 24,
-                width: 24,
-              ),
-              label: const Text("Sign in with Facebook"),
-              style: ElevatedButton.styleFrom(
-                foregroundColor: Colors.black87,
-                backgroundColor: Colors.grey.shade200,
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
+            // ElevatedButton.icon(
+            //   onPressed: _signInWithFacebook,
+            //   icon: Image.asset(
+            //     'assets/facebook.png',
+            //     height: 24,
+            //     width: 24,
+            //   ),
+            //   label: const Text("Sign in with Facebook"),
+            //   style: ElevatedButton.styleFrom(
+            //     foregroundColor: Colors.black87,
+            //     backgroundColor: Colors.grey.shade200,
+            //     minimumSize: const Size(double.infinity, 50),
+            //     shape: RoundedRectangleBorder(
+            //       borderRadius: BorderRadius.circular(8),
+            //     ),
+            //   ),
+            // ),
 
             Row(
               children: const [
@@ -252,22 +266,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
             const SizedBox(height: 16),
 
-            OutlinedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SignUpScreen()),
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
-              child: const Text("Create new account"),
-            ),
+            // OutlinedButton(
+            //   onPressed: () {
+            //     Navigator.push(
+            //       context,
+            //       MaterialPageRoute(builder: (_) => const SignUpScreen()),
+            //     );
+            //   },
+            //   style: OutlinedButton.styleFrom(
+            //     minimumSize: const Size(double.infinity, 50),
+            //     side: BorderSide(color: Colors.grey.shade300),
+            //   ),
+            //   child: const Text("Create new account"),
+            // ),
           ],
         ),
       ),
     );
   }
 }
+
+

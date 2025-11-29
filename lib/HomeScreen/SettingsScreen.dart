@@ -1,5 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../Screens/LoginScreen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -61,12 +64,40 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
 
-            // ====== BUSINESS ======
+
+
+// Inside SettingsScreen widget, add a new section or item:
+
+
+      // ====== BUSINESS ======
             _settingsSection(
               title: "Business",
               children: [
                 _settingsItem("Business info", Icons.public),
                 _settingsItem("API Key", Icons.vpn_key_outlined),
+              ],
+            ),
+
+            _settingsSection(
+              title: "Account Actions",
+              children: [
+                _settingsItem(
+                  "Log Out",
+                  Icons.logout_outlined,
+                  onTap: () async {
+                    SharedPreferences prefs = await SharedPreferences.getInstance();
+                    await prefs.clear(); // Clear saved token and user info
+
+                    // Optional: Sign out from Firebase Auth if using it
+                    // await FirebaseAuth.instance.signOut();
+
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          (route) => false,
+                    );
+                  },
+                ),
               ],
             ),
 
@@ -161,9 +192,25 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _nameController = TextEditingController(text: "Sachin K");
-  final _emailController = TextEditingController(text: "anantkamal@gmail.com");
-  final _phoneController = TextEditingController(text: "9387373632");
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();       // <-- load saved data here
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    setState(() {
+      _nameController.text = prefs.getString("name") ?? "";
+      _emailController.text = prefs.getString("email") ?? "";
+      _phoneController.text = prefs.getString("phone") ?? "";
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -175,7 +222,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Row
+
               Row(
                 children: [
                   IconButton(
@@ -184,24 +231,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const Text(
                     "Profile",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 6),
-
-              const Text(
-                "Update your account's profile information and email address.",
-                style: TextStyle(fontSize: 13, color: Colors.black54),
-              ),
-
               const SizedBox(height: 20),
 
-              // NAME
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -212,7 +248,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 12),
 
-              // EMAIL
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(
@@ -223,7 +258,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 12),
 
-              // PHONE WITH COUNTRY CODE
               Row(
                 children: [
                   Container(
@@ -234,16 +268,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       border: Border.all(color: Colors.grey),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text(
-                      "+91",
-                      style: TextStyle(fontSize: 15),
-                    ),
+                    child: const Text("+91"),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _phoneController,
-                      keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         hintText: "Phone Number",
                         border: OutlineInputBorder(),
@@ -255,7 +285,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 20),
 
-              // SAVE BUTTON
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -263,12 +292,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     backgroundColor: Colors.green,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  onPressed: () {},
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString("name", _nameController.text.trim());
+                    await prefs.setString("email", _emailController.text.trim());
+                    await prefs.setString("phone", _phoneController.text.trim());
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Profile Updated")),
+                    );
+                  },
                   child: const Text(
                     "Save",
-                    style: TextStyle(
-                      color: Colors.white, // ✅ text is white
-                    ),
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
               ),
@@ -279,6 +315,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+
+
 
 
 

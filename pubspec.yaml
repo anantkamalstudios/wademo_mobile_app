@@ -24,6 +24,14 @@ dependencies:
   image_picker: ^1.0.7
   shared_preferences: ^2.3.2
   file_picker: ^8.0.2
+  google_fonts: ^6.1.0
+  socket_io_client: ^2.0.3
+  url_launcher: ^6.1.10
+  http: ^1.1.0
+  path: ^1.8.3
+  path_provider: ^2.0.15
+  flutter_launcher_icons: ^0.11.0
+
 
 
 dev_dependencies:
@@ -31,18 +39,22 @@ dev_dependencies:
     sdk: flutter
 
 
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/app_icon.png"
   flutter_lints: ^5.0.0
 
 
 flutter:
 
 
+
+
   uses-material-design: true
 
   assets:
-    - assets/facebook.png
-    - assets/google.png
-    - assets/activity_bar.png
+    - assets/
 
 
 

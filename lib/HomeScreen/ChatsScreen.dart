@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -5,16 +6,23 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'BottomOptionsScreens.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 
 class ChatScreen extends StatefulWidget {
-  final Function(bool)? onChatStateChange;
-  const ChatScreen({super.key, this.onChatStateChange});
+  final ValueChanged<bool> onChatStateChange;
+  final ValueChanged<int> onChatCountChange;
+  // 👈 NEW
+  ChatScreen({
+    required this.onChatStateChange,
+    required this.onChatCountChange,
+  });
+
 
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  _ChatScreenState createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
@@ -24,11 +32,47 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isSearching = false; // search mode
   String _searchQuery = ""; // search text
   String? _selectedUser;
+  String? _selectedPhone; // phone of the open chat (from API)
   final ImagePicker _picker = ImagePicker();
   File? _selectedImage;
   File? _selectedFile;
 
-  final TextEditingController _messageController = TextEditingController(); // ✅ added controller
+  bool _isLoadingMore = false;  // if currently fetching more chats
+  int _currentPage = 1;         // current page
+  int _perPage = 20;            // items per page (adjust to API)
+  bool _hasMore = true;
+
+  List<XFile> _selectedImages = []; // instead of _selectedImage
+
+  String? _previewImagePath;
+  bool _showPreviewAppBar = true;
+
+  Set<int> _selectedMessageIndexes = {}; // Keep track of selected messages
+  bool _isSelectionMode = false;         // Whether any message is selected
+
+
+
+
+  String? _token;
+
+  List<Map<String, dynamic>> _chats = [];
+
+  final ScrollController _scrollController = ScrollController();
+
+  List<Map<String, dynamic>> _messages = [];
+
+  final TextEditingController _messageController = TextEditingController();
+  // ✅ added controller
+  String _extractMessage(dynamic msg) {
+    if (msg == null) return '';
+    if (msg is String) return msg;
+    if (msg is Map) {
+      if (msg.containsKey("message")) return msg["message"].toString();
+      if (msg.containsKey("content")) return msg["content"].toString();
+      if (msg.containsKey("text")) return msg["text"].toString();
+    }
+    return msg.toString();
+  }
 
   Future<void> _saveAvatarToPrefs(String username, String path) async {
     final prefs = await SharedPreferences.getInstance();
@@ -40,72 +84,205 @@ class _ChatScreenState extends State<ChatScreen> {
     return prefs.getString('avatar_$username');
   }
 
-  final List<Map<String, dynamic>> _chats = [
-    {
-      'name': 'Arjun Das Mygate',
-      'message': 'Hey, I got to know you’re amid a design task, ATB for same!',
-      'time': '12:35 PM',
-      'unread': 10,
-      'avatar': 'https://i.pravatar.cc/100?img=1',
-    },
-    {
-      'name': 'Elisa das Zoho',
-      'message': 'Japan looks amazing!',
-      'time': 'Yesterday',
-      'unread': 0,
-      'avatar': 'https://i.pravatar.cc/100?img=2',
-    },
-    {
-      'name': 'Brian Kapoor',
-      'message': 'See you soon!',
-      'time': '9:20 AM',
-      'unread': 1,
-      'avatar': 'https://i.pravatar.cc/100?img=3',
-    },
-    {
-      'name': 'Chaitra V',
-      'message': 'Thanks for sharing the report.',
-      'time': '8:10 PM',
-      'unread': 3,
-      'avatar': 'https://i.pravatar.cc/100?img=4',
-    },
-    {
-      'name': 'Chaitra V',
-      'message': 'Thanks for sharing the report.',
-      'time': '8:10 PM',
-      'unread': 3,
-      'avatar': 'https://i.pravatar.cc/100?img=4',
-    },
-    {
-      'name': 'Chaitra V',
-      'message': 'Thanks for sharing the report.',
-      'time': '8:10 PM',
-      'unread': 3,
-      'avatar': 'https://i.pravatar.cc/100?img=4',
-    },
-    {
-      'name': 'Chaitra V',
-      'message': 'Thanks for sharing the report.',
-      'time': '8:10 PM',
-      'unread': 3,
-      'avatar': 'https://i.pravatar.cc/100?img=4',
-    },
-    {
-      'name': 'Chaitra V',
-      'message': 'Thanks for sharing the report.',
-      'time': '8:10 PM',
-      'unread': 3,
-      'avatar': 'https://i.pravatar.cc/100?img=4',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
 
-  final List<Map<String, dynamic>> _messages = [
-    {'text': 'Hey where are you now ?', 'isMe': false, 'time': '11:40'},
-    {'text': 'Good morning, In Chennai 😎', 'isMe': true, 'time': '11:43'},
-    {'text': 'I will write from Japan', 'isMe': true, 'time': '17:47'},
-    {'text': 'Good bye!', 'isMe': true, 'time': '17:47'},
-    {'text': 'Japan looks amazing!', 'isMe': true, 'time': '10:10'},
-  ];
+    _loadTokenAndFetchChats();
+
+    // 🔹 Chat list auto-refresh
+    Timer.periodic(Duration(seconds: 4), (timer) {
+      if (!_isChatOpen) {
+        _fetchConversationsAndPopulate();
+      }
+    });
+
+    // 🔹 Conversation auto-refresh
+    Timer.periodic(Duration(seconds: 3), (timer) {
+      if (_isChatOpen && _selectedPhone != null) {
+        final chat = _chats.firstWhere(
+                (c) => c['phone'].toString() == _selectedPhone.toString(),
+            orElse: () => {}
+        );
+
+        if (chat.isNotEmpty) {
+          _fetchMessages(chat['id'].toString());
+        }
+      }
+    });
+  }
+
+  Future<void> sendImage(File file) async {
+    setState(() {
+      _messages.insert(0, {
+        "type": "image",
+        "image": file.path,
+        "isMe": true,
+        "time": DateTime.now().toString().substring(11,16),
+        "sending": true,
+        "failed": false,
+      });
+    });
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("token");
+    if (token == null) return;
+
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse("https://www.anantkamalwademo.online/api/wpbox/sendmessage"),
+    );
+
+    request.fields['token'] = token;
+    request.fields['phone'] = _selectedPhone ?? '';
+    request.files.add(await http.MultipartFile.fromPath('image', file.path));
+
+    try {
+      var response = await request.send();
+      String res = await response.stream.bytesToString();
+      var decoded = jsonDecode(res);
+
+      int index = _messages.indexWhere((m) => m["image"] == file.path && m["sending"] == true);
+
+      if (decoded["status"] == "success") {
+        setState(() {
+          if (index != -1) {
+            _messages[index]["sending"] = false;
+            _messages[index]["wamid"] = decoded["message_wamid"]; // optional
+          }
+          _selectedImage = null;
+        });
+      } else {
+        setState(() {
+          if (index != -1) {
+            _messages[index]["sending"] = false;
+            _messages[index]["failed"] = true;
+          }
+        });
+      }
+    } catch (e) {
+      print("❌ sendImage error: $e");
+      int index = _messages.indexWhere((m) => m["image"] == file.path && m["sending"] == true);
+      if (index != -1) {
+        setState(() {
+          _messages[index]["sending"] = false;
+          _messages[index]["failed"] = true;
+        });
+      }
+    }
+  }
+
+  Future<void> saveMessagesLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString('messages', jsonEncode(_messages));
+  }
+
+  Future<void> loadMessagesLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('messages');
+    if (saved != null) {
+      setState(() {
+        _messages = List<Map<String, dynamic>>.from(jsonDecode(saved));
+      });
+    }
+  }
+
+  Future<void> _loadTokenAndFetchChats() async {
+    print("🔹 _loadTokenAndFetchChats called");
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('token');
+    print("🔹 Loaded token: $_token");
+    if (_token != null) _fetchConversationsAndPopulate();
+  }
+
+
+  Future<void> _fetchConversationsAndPopulate({bool loadMore = false}) async {
+    if (_isLoadingMore || (!_hasMore && loadMore)) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final url = Uri.parse(
+          "https://anantkamalwademo.online/api/wpbox/getConversations/none?mobile_api=true&page=$_currentPage&per_page=$_perPage");
+
+      final body = jsonEncode({"token": token});
+      final resp = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      );
+
+      if (resp.statusCode != 200) return;
+
+      final Map<String, dynamic> data = json.decode(resp.body);
+
+      List<dynamic>? conversations;
+      if (data.containsKey('conversations')) {
+        conversations = data['conversations'];
+      } else if (data.containsKey('contacts')) {
+        conversations = data['contacts'];
+      } else if (data.containsKey('data')) {
+        conversations = data['data'];
+      }
+
+      if (conversations == null || conversations.isEmpty) {
+        setState(() => _hasMore = false);
+        return;
+      }
+
+      final List<Map<String, dynamic>> fetched = conversations.map((c) {
+        return {
+          'id': c['id'] ?? c['conversation_id'] ?? null,
+          'name': (c['name'] ?? (c['title'] ?? c['contact_name'] ?? 'Unknown'))
+              .toString(),
+          'message': _extractMessage(
+              c['last_message'] ??
+                  c['last_message_text'] ??
+                  c['last_sender_message'] ??
+                  c['last_message_data'] ??
+                  ""),
+
+          'time': (c['last_reply_at'] ?? c['updated_at'] ?? c['last_message_time'] ?? '').toString(),
+          'unread': c['unread'] ?? c['unread_count'] ?? 0,
+
+          'avatar': (c['avatar'] ?? ''),
+          'phone': (c['phone'] ?? c['msisdn'] ?? c['number'] ?? '').toString().trim(),
+
+          'raw': c,
+        };
+      }).toList();
+
+      setState(() {
+        if (loadMore) {
+          _chats.addAll(fetched);
+        } else {
+          _chats = fetched;
+        }
+
+        _chats.sort((a, b) {
+          DateTime aTime = DateTime.tryParse(a['time'] ?? '') ?? DateTime(1970);
+          DateTime bTime = DateTime.tryParse(b['time'] ?? '') ?? DateTime(1970);
+          return bTime.compareTo(aTime);
+        });
+
+        _isLoadingMore = false;
+        _currentPage++;  // next page
+      });
+
+      // Update HomeScreen count
+      widget.onChatCountChange(_chats.length);
+
+    } catch (e) {
+      print("❌ FETCH CONVERSATIONS ERROR: $e");
+      setState(() => _isLoadingMore = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,15 +291,22 @@ class _ChatScreenState extends State<ChatScreen> {
         .toString()
         .toLowerCase()
         .contains(_searchQuery.toLowerCase()))
-        .toList()
-      ..sort((a, b) => a['name']
-          .toString()
-          .toLowerCase()
-          .compareTo(b['name'].toString().toLowerCase()));
+        .toList();
+
+// No alphabetical sort; keep latest first
+// If you want, you can sort filtered chats by time again to be safe:
+    filteredChats.sort((a, b) {
+      DateTime aTime = DateTime.tryParse(a['time'] ?? '') ?? DateTime(1970);
+      DateTime bTime = DateTime.tryParse(b['time'] ?? '') ?? DateTime(1970);
+      return bTime.compareTo(aTime); // latest first
+    });
+
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
+        appBar: _previewImagePath != null
+            ? null   // Hide AppBar during preview
+            : AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         titleSpacing: 0,
@@ -180,6 +364,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _showAttachmentOptions = false;
               _selectedImage = null;
               _selectedFile = null;
+              _selectedPhone = null;
             });
             widget.onChatStateChange?.call(false);
           },
@@ -197,7 +382,11 @@ class _ChatScreenState extends State<ChatScreen> {
             : null,
       ),
       body: _isChatOpen ? _chatView() : _chatListView(filteredChats),
-      bottomNavigationBar: _isChatOpen ? _chatBottomBar() : null,
+      // bottomNavigationBar:
+      // _isChatOpen && _previewImagePath == null
+      //     // ? _chatBottomBar()
+      //     : null,
+
     );
   }
 
@@ -221,258 +410,507 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _chatListView(List<Map<String, dynamic>> chats) {
     if (chats.isEmpty) {
       return const Center(
-        child: Text("No chats found",
-            style: TextStyle(color: Colors.black54, fontSize: 16)),
+        child: Text(
+          "No chats found",
+          style: TextStyle(color: Colors.black54, fontSize: 16),
+        ),
       );
     }
 
-    return ListView.separated(
-      itemCount: chats.length,
-      separatorBuilder: (_, __) =>
-      const Divider(height: 1, color: Colors.black12),
-      itemBuilder: (context, index) {
-        final chat = chats[index];
-        return ListTile(
-          onTap: () {
-            setState(() {
-              _isChatOpen = true;
-              _selectedUser = chat['name'];
-              _isSearching = false;
-              _searchQuery = "";
-            });
-            widget.onChatStateChange?.call(true);
-          },
-          leading: FutureBuilder<String?>(
-            future: _getSavedAvatar(chat['name']),
-            builder: (context, snapshot) {
-              final savedAvatar = snapshot.data;
-              final avatarToShow = savedAvatar ?? chat['avatar'];
-              return CircleAvatar(
-                radius: 24,
-                backgroundImage: avatarToShow.toString().startsWith('http')
-                    ? NetworkImage(avatarToShow)
-                    : FileImage(File(avatarToShow)) as ImageProvider,
+    return RefreshIndicator(
+      onRefresh: _refreshChats, // 🔹 callback when pulled
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (scrollInfo) {
+          if (!_isLoadingMore &&
+              _hasMore &&
+              scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 50) {
+            _fetchConversationsAndPopulate(loadMore: true);
+          }
+          return false;
+        },
+        child: ListView.separated(
+          itemCount: chats.length + (_hasMore ? 1 : 0), // add extra for loading indicator
+          separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
+          itemBuilder: (context, index) {
+            if (index == chats.length) {
+              // loading indicator at bottom
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(child: CircularProgressIndicator()),
               );
-            },
-          ),
-          title: Text(chat['name'],
-              style:
-              const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-          subtitle: Row(
-            children: [
-              const Icon(Icons.done_all, size: 14, color: Colors.teal),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(chat['message'],
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.black54, fontSize: 13)),
+            }
+
+            final chat = chats[index];
+            return ListTile(
+              onTap: () async {
+                setState(() {
+                  _isChatOpen = true;
+                  _selectedUser = chat['name'];
+                  _selectedPhone = (chat['phone'] ?? chat['number'] ?? chat['msisdn'] ?? '').toString();
+
+                  _isSearching = false;
+                  _searchQuery = "";
+                });
+
+                widget.onChatStateChange(true);
+                await _fetchMessages(chat['id'].toString());
+              },
+              leading: FutureBuilder<String?>(
+                future: _getSavedAvatar(chat['name']),
+                builder: (context, snapshot) {
+                  final savedAvatar = snapshot.data;
+                  final avatarToShow = savedAvatar ?? chat['avatar'] ?? '';
+
+                  if (avatarToShow.isNotEmpty) {
+                    return CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.grey.shade300,
+                      backgroundImage: avatarToShow.toString().startsWith('http')
+                          ? NetworkImage(avatarToShow)
+                          : FileImage(File(avatarToShow)) as ImageProvider,
+                    );
+                  } else {
+                    // 🔹 Show initials if no avatar
+                    String initials = "";
+                    if (chat['name'] != null && chat['name'].toString().isNotEmpty) {
+                      final names = chat['name'].toString().split(" ");
+                      initials = names.length == 1
+                          ? names[0][0].toUpperCase()
+                          : names[0][0].toUpperCase() + names[1][0].toUpperCase();
+                    }
+
+                    return CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Colors.teal,
+                      child: Text(
+                        initials,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    );
+                  }
+                },
               ),
-            ],
-          ),
-          trailing: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(chat['time'],
-                  style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500)),
-              const SizedBox(height: 5),
-              if (chat['unread'] > 0)
-                Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: const BoxDecoration(
-                    color: Colors.teal,
-                    shape: BoxShape.circle,
+
+              title: Text(
+                chat['name'],
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              subtitle: Row(
+                children: [
+                  const Icon(Icons.done_all, size: 14, color: Colors.teal),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      chat['message'].toString(),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
                   ),
-                  child: Text('${chat['unread']}',
-                      style:
-                      const TextStyle(color: Colors.white, fontSize: 12)),
-                ),
-            ],
-          ),
-        );
-      },
+                ],
+              ),
+              trailing: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(chat['time'] ?? '', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+
+                  if ((chat['unread'] ?? 0) > 0)
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(
+                        color: Colors.teal,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${chat['unread']}',
+                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+
+            );
+          },
+        ),
+      ),
     );
+  }
+
+  Future<void> _refreshChats() async {
+    await _fetchConversationsAndPopulate(); // reload chat list from API
+
+    // Optionally, refresh current chat messages too
+    if (_isChatOpen && _selectedPhone != null) {
+      final chat = _chats.firstWhere(
+              (c) => c['phone'].toString() == _selectedPhone.toString(),
+          orElse: () => {});
+      if (chat.isNotEmpty) {
+        await _fetchMessages(chat['id'].toString());
+      }
+    }
   }
 
   Widget _chatView() {
     return Stack(
       children: [
-        Column(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final msg = _messages[index];
-                  return Align(
-                    alignment: msg['isMe']
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.75,
-                      ),
-                      decoration: BoxDecoration(
-                        color: msg['isMe']
-                            ? const Color(0xFFE7FFDB)
-                            : Colors.white,
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(12),
-                          topRight: const Radius.circular(12),
-                          bottomLeft: msg['isMe']
-                              ? const Radius.circular(12)
-                              : const Radius.circular(0),
-                          bottomRight: msg['isMe']
-                              ? const Radius.circular(0)
-                              : const Radius.circular(12),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black12.withOpacity(0.05),
-                            blurRadius: 2,
-                            spreadRadius: 1,
-                          )
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(msg['text'],
-                              style: const TextStyle(fontSize: 15)),
-                          const SizedBox(height: 4),
-                          Row(
+        // Chat messages
+        Container(
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage("assets/img.png"),
+              fit: BoxFit.cover,
+            ),
+          ),
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  reverse: true,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    bool isMe = msg['isMe'] == true;
+
+                    if (msg["type"] == "image") {
+                      final networkUrl = msg["imageUrl"];
+                      final localPath = msg["image"];
+                      final time = msg["time"] ?? DateTime.now().toString().substring(11, 16);
+
+                      return Align(
+                        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                        child: GestureDetector(
+                          onLongPress: () {
+                            setState(() {
+                              _isSelectionMode = true;
+                              _selectedMessageIndexes.add(index);
+                            });
+                          },
+                          onTap: () {
+                            if (_isSelectionMode) {
+                              setState(() {
+                                if (_selectedMessageIndexes.contains(index)) {
+                                  _selectedMessageIndexes.remove(index);
+                                  if (_selectedMessageIndexes.isEmpty) _isSelectionMode = false;
+                                } else {
+                                  _selectedMessageIndexes.add(index);
+                                }
+                              });
+                            } else {
+                              setState(() {
+                                _previewImagePath = localPath ?? networkUrl;
+                                _showPreviewAppBar = true;
+                              });
+                            }
+                          },
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text(msg['time'],
-                                  style: const TextStyle(
-                                      fontSize: 11, color: Colors.black54)),
-                              if (msg['isMe']) ...[
-                                const SizedBox(width: 3),
-                                const Icon(Icons.done_all,
-                                    size: 14, color: Colors.teal),
-                              ],
+                              Container(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                decoration: BoxDecoration(
+                                  boxShadow: _selectedMessageIndexes.contains(index)
+                                      ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.5), blurRadius: 8)]
+                                      : null,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: localPath != null
+                                      ? Image.file(
+                                    File(localPath),
+                                    width: 200,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                  )
+                                      : Image.network(
+                                    networkUrl ?? "https://via.placeholder.com/200",
+                                    width: 200,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.identity()
+                                  ..rotateY(3.1416)
+                                  ..rotateZ(0.1),
+                                child: IconButton(
+                                  icon: Icon(Icons.reply_all, color: Colors.white, size: 22),
+                                  onPressed: () {
+                                    print("Forward tapped for this image!");
+                                  },
+                                ),
+                              ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            if (_selectedImage != null || _selectedFile != null)
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  children: [
-                    if (_selectedImage != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          _selectedImage!,
-                          width: 60,
-                          height: 60,
-                          fit: BoxFit.cover,
                         ),
-                      ),
-                    if (_selectedFile != null)
-                      Expanded(
+                      );
+
+                    }
+
+
+
+                    // Existing text message rendering
+                    return Align(
+                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                      child: GestureDetector(
+                        onLongPress: () {
+                          setState(() {
+                            _isSelectionMode = true;
+                            _selectedMessageIndexes.add(index);
+                          });
+                        },
+                        onTap: () {
+                          if (_isSelectionMode) {
+                            setState(() {
+                              if (_selectedMessageIndexes.contains(index)) {
+                                _selectedMessageIndexes.remove(index);
+                                if (_selectedMessageIndexes.isEmpty) _isSelectionMode = false;
+                              } else {
+                                _selectedMessageIndexes.add(index);
+                              }
+                            });
+                          }
+                        },
                         child: Container(
-                          padding: const EdgeInsets.all(8),
-                          margin: const EdgeInsets.only(left: 8),
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.fromLTRB(14, 10, 50, 10),
                           decoration: BoxDecoration(
-                            color: Colors.teal.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                            color: isMe ? Colors.green.shade400 : Colors.white,
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(12),
+                              topRight: const Radius.circular(12),
+                              bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+                              bottomRight: isMe ? Radius.zero : const Radius.circular(12),
+                            ),
+                            boxShadow: _selectedMessageIndexes.contains(index)
+                                ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.5), blurRadius: 8)]
+                                : null,
                           ),
                           child: Text(
-                            '📄 ${_selectedFile!.path.split('/').last}',
-                            overflow: TextOverflow.ellipsis,
+                            msg['text'] ?? '',
+                            style: TextStyle(
+                              color: isMe ? Colors.white : Colors.black87,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                       ),
-                  ],
+                    );
+
+                  },
                 ),
               ),
 
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                _chatInput(),
-                if (_showQuickOptions)
-                  Positioned(
-                    bottom: 65,
-                    left: 0,
-                    right: 0,
-                    child: _quickOptionsPopup(),
+
+              if (_selectedImage != null || _selectedFile != null)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    _selectedImage != null
+                        ? '📸 Image selected'
+                        : _selectedFile != null
+                        ? '📄 File selected'
+                        : '',
+                    style: const TextStyle(color: Colors.black54),
                   ),
-                if (_showAttachmentOptions)
-                  Positioned(
-                    bottom: 65,
-                    left: 0,
-                    right: 0,
-                    child: _attachmentPopup(),
-                  ),
-              ],
-            ),
-          ],
+                ),
+              if (_previewImagePath == null) _chatInput(),
+
+            ],
+          ),
         ),
+
+        // Attachment popup
+        if (_showAttachmentOptions)
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 60),
+              child: Material(
+                borderRadius: BorderRadius.circular(16),
+                elevation: 4,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _popupButton(Icons.image_outlined, "Image",
+                          onTap: _openImagePickerDialog),
+                      _popupButton(Icons.picture_as_pdf_outlined, "File",
+                          onTap: _pickFile),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        if (_previewImagePath != null)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showPreviewAppBar = !_showPreviewAppBar;
+                });
+              },
+              child: Container(
+                color: Colors.black,
+                child: Stack(
+                  children: [
+
+                    /// Main preview image
+                    Center(
+                      child: InteractiveViewer(
+                        child: _previewImagePath!.startsWith("http")
+                            ? Image.network(_previewImagePath!)
+                            : Image.file(File(_previewImagePath!)),
+                      ),
+                    ),
+
+                    /// TOP OVERLAY (WhatsApp style)
+                    AnimatedPositioned(
+                      duration: Duration(milliseconds: 200),
+                      top: _showPreviewAppBar ? 0 : -80,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(
+                        child: Container(
+                          height: 80,
+                          padding: EdgeInsets.symmetric(horizontal: 10),
+                          color: Colors.black54,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.arrow_back,
+                                    color: Colors.white, size: 26),
+                                onPressed: () {
+                                  setState(() {
+                                    _previewImagePath = null;
+                                  });
+                                },
+                              ),
+                              Row(
+                                children: [
+                                  Transform(
+                                    alignment: Alignment.center,
+                                    transform: Matrix4.identity()
+                                      ..rotateY(3.1416)        // flip horizontally
+                                      ..rotateZ(0.1),          // tilt to the right
+                                    child: Icon(
+                                      Icons.reply_all,
+                                      color: Colors.white,
+                                      size: 23,
+                                    ),
+                                  ),
+
+
+
+
+                                  SizedBox(width: 10),
+                                  Icon(Icons.more_vert,
+                                      color: Colors.white, size: 26),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    /// BOTTOM REPLY BAR
+                    AnimatedPositioned(
+                      duration: Duration(milliseconds: 200),
+                      bottom: _showPreviewAppBar ? 0 : -100,
+                      left: 0,
+                      right: 0,
+                      child: SafeArea(
+                        child: Container(
+                          height: 60,
+                          padding: EdgeInsets.symmetric(horizontal: 10),
+                          color: Colors.black54,
+                          child: Row(
+                            children: [
+                              Icon(Icons.reply, color: Colors.white, size: 28),
+                              SizedBox(width: 8),
+                              Text(
+                                "Reply",
+                                style:
+                                TextStyle(color: Colors.white, fontSize: 18),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+        // After the full-screen image preview and quick options popup
+        if (_isSelectionMode)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              color: Colors.black54,
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.delete, color: Colors.white),
+                    onPressed: () {
+                      setState(() {
+                        _selectedMessageIndexes.toList().sort((b, a) => a.compareTo(b));
+                        for (var i in _selectedMessageIndexes) {
+                          _messages.removeAt(i);
+                        }
+                        _selectedMessageIndexes.clear();
+                        _isSelectionMode = false;
+                      });
+                    },
+                  ),
+                  SizedBox(width: 10),
+                  IconButton(
+                    icon: Icon(Icons.reply_all, color: Colors.white),
+                    onPressed: () {
+                      print("Forward selected messages");
+                    },
+                  ),
+                  SizedBox(width: 10),
+                  IconButton(
+                    icon: Icon(Icons.close, color: Colors.white),
+                    onPressed: () {
+                      setState(() {
+                        _selectedMessageIndexes.clear();
+                        _isSelectionMode = false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (_showQuickOptions)
+          Positioned.fill(
+            child: _quickOptionsPopup(),
+          ),
       ],
     );
   }
-
-  /// ✅ send message function
-  void _sendMessage() {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-
-    setState(() {
-      _messages.add({
-        'text': text,
-        'isMe': true,
-        'time': TimeOfDay.now().format(context),
-      });
-      _messageController.clear();
-    });
-
-    // ✅ Simulate auto incoming message
-    Future.delayed(const Duration(seconds: 2), () {
-      setState(() {
-        _messages.add({
-          'text': _generateAutoReply(text),
-          'isMe': false,
-          'time': TimeOfDay.now().format(context),
-        });
-      });
-    });
-  }
-
-  /// Simple auto-reply generator
-  String _generateAutoReply(String userMessage) {
-    final lower = userMessage.toLowerCase();
-    if (lower.contains('hi') || lower.contains('hello')) {
-      return "Hey there! 👋";
-    } else if (lower.contains('how are you')) {
-      return "I'm doing great! How about you?";
-    } else if (lower.contains('bye')) {
-      return "Goodbye! Talk soon 👋";
-    } else if (lower.contains('thanks') || lower.contains('thank')) {
-      return "You're welcome 😊";
-    } else {
-      return "Got it 👍";
-    }
-  }
-
 
   Widget _chatInput() {
     return Container(
@@ -480,9 +918,9 @@ class _ChatScreenState extends State<ChatScreen> {
       color: Colors.white,
       child: Row(
         children: [
+          // Quick options button
           IconButton(
-            icon:
-            const Icon(Icons.bolt_outlined, color: Colors.amber, size: 28),
+            icon: const Icon(Icons.bolt_outlined, color: Colors.amber, size: 28),
             onPressed: () {
               setState(() {
                 _showQuickOptions = !_showQuickOptions;
@@ -490,21 +928,65 @@ class _ChatScreenState extends State<ChatScreen> {
               });
             },
           ),
+
+          // Emoji button (placeholder)
           IconButton(
-            icon:
-            const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+            icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
             onPressed: () {},
           ),
+
+          // Message input field
           Expanded(
-            child: TextField(
-              controller: _messageController, // ✅ controller added
-              decoration: const InputDecoration(
-                hintText: "Message",
-                border: InputBorder.none,
-              ),
-              onSubmitted: (_) => _sendMessage(), // ✅ press enter to send
+            child: Column(
+              children: [
+                if (_selectedImages.isNotEmpty)
+                  SizedBox(
+                    height: 100,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _selectedImages.length,
+                      itemBuilder: (context, index) {
+                        final img = _selectedImages[index];
+                        return Stack(
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.file(File(img.path), width: 100, height: 100, fit: BoxFit.cover),
+                              ),
+                            ),
+                            Positioned(
+                              top: -6,
+                              right: -6,
+                              child: IconButton(
+                                icon: Icon(Icons.close, size: 20, color: Colors.red),
+                                onPressed: () {
+                                  setState(() => _selectedImages.removeAt(index));
+                                },
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                TextField(
+                  controller: _messageController,
+                  decoration: const InputDecoration(
+                    hintText: "Message",
+                    border: InputBorder.none,
+                  ),
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => sendMessage(isButton: true),
+                ),
+              ],
             ),
           ),
+
+
+
+          // Attach file button
           IconButton(
             icon: const Icon(Icons.attach_file, color: Colors.grey),
             onPressed: () {
@@ -514,97 +996,161 @@ class _ChatScreenState extends State<ChatScreen> {
               });
             },
           ),
+
+          // Send button
           CircleAvatar(
             radius: 20,
             backgroundColor: Colors.teal,
             child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.white, size: 18),
-              onPressed: _sendMessage, // ✅ send on tap
+              icon: const Icon(Icons.send),
+              onPressed: () {
+                if (_selectedImages.isNotEmpty) {
+                  for (var img in _selectedImages) {
+                    sendImage(File(img.path));
+                  }
+                  setState(() {
+                    _selectedImages.clear(); // clear previews after sending
+                  });
+                } else {
+                  sendMessage(isButton: true);
+                }
+              },
             ),
           ),
+
+
         ],
       ),
     );
   }
 
-  // Remaining helper popups unchanged
+  Future<void> sendMessage({bool isButton = false}) async {
+    if (_selectedPhone == null) return;
+
+    String text = _messageController.text.trim();
+    if (text.isEmpty && !isButton) return;
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("token");
+    if (token == null) return;
+
+    final uri = Uri.parse("https://www.anantkamalwademo.online/api/wpbox/sendmessage");
+
+    final Map<String, Object> body = {
+      "token": token,
+      "phone": _selectedPhone!.trim(),
+      "message": text,
+    };
+
+    try {
+      final res = await http.post(
+        uri,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+
+      final decoded = jsonDecode(res.body);
+
+      print("RESPONSE: $decoded");
+
+      if (decoded["status"] == "success") {
+        setState(() {
+          _messages.add({
+            "text": text,
+            "isMe": true,
+            "time": DateTime.now().toString(),
+            "wamid": decoded["message_wamid"], // 🔥 includes WhatsApp ID
+          });
+        });
+
+        _messageController.clear();
+      } else {
+        print("❌ Message send failed: ${decoded["message"]}");
+      }
+    } catch (e) {
+      print("❌ Send error: $e");
+    }
+  }
+
+  Future<void> _fetchMessages(String contactId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final url = Uri.parse("https://anantkamalwademo.online/api/wpbox/getMessages");
+      final body = jsonEncode({
+        "token": token,
+        "contact_id": int.tryParse(contactId) ?? 0,
+      });
+
+      final resp = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: body,
+      );
+
+      if (resp.statusCode != 200) return;
+
+      final responseData = jsonDecode(resp.body);
+      if (!responseData.containsKey("data")) return;
+
+      List<dynamic> list = responseData["data"];
+
+      List<Map<String, dynamic>> loadedMessages = list.map((m) {
+        bool isMe = m["is_message_by_contact"] == 0;
+
+        bool isImage =
+            m["header_image"] != null && m["header_image"].toString().isNotEmpty;
+
+        return {
+          "type": isImage ? "image" : "text",
+          "text": m["value"] ?? "",
+          "imageUrl": m["header_image"],
+          "isMe": isMe,
+          "time": m["created_at"]?.toString().substring(11, 16) ?? "",
+        };
+      }).toList();
+
+      setState(() {
+        _messages = loadedMessages;
+      });
+    } catch (e) {
+      print("❌ _fetchMessages error: $e");
+    }
+  }
+
   Widget _quickOptionsPopup() => _popupContainer([
     _popupButton(Icons.insert_drive_file, "Template"),
     _popupButton(Icons.bolt, "Quick Replies"),
   ]);
 
-  Widget _attachmentPopup() => _popupContainer([
-    _popupButton(
-      Icons.image_outlined,
-      "Image",
-      onTap: () {
-        setState(() => _showAttachmentOptions = false);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _openImagePickerDialog();
+  Future<void> _openImagePickerDialog() async {
+    final ImagePicker picker = ImagePicker();
+    try {
+      final List<XFile>? pickedFiles = await picker.pickMultiImage(); // MULTIPLE
+      if (pickedFiles != null && pickedFiles.isNotEmpty) {
+        setState(() {
+          _selectedImages.addAll(pickedFiles);
         });
-      },
-    ),
-    _popupButton(
-      Icons.picture_as_pdf_outlined,
-      "File",
-      onTap: () {
-        setState(() => _showAttachmentOptions = false);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _pickFile();
-        });
-      },
-    ),
-  ]);
-
-  void _openImagePickerDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text("Select Image"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library, color: Colors.teal),
-                title: const Text("Choose from Gallery"),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                  if (pickedFile != null) {
-                    setState(() => _selectedImage = File(pickedFile.path));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('📸 Image selected: ${pickedFile.name}')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt, color: Colors.teal),
-                title: const Text("Take a Photo"),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final pickedFile = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-                  if (pickedFile != null) {
-                    setState(() => _selectedImage = File(pickedFile.path));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('📷 Photo captured: ${pickedFile.name}')),
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
+      }
+    } catch (e) {
+      print("❌ pickMultiImage error: $e");
+    }
   }
 
   Widget _popupButton(IconData icon, String label, {VoidCallback? onTap}) {
     return InkWell(
+      onTap: () {
+        print("Tapped $label");
+        setState(() {
+          _showAttachmentOptions = false;
+          _showQuickOptions = false;
+        });
+
+        if (onTap != null) onTap();
+      },
       borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
       child: Container(
         width: 130,
         height: 90,
@@ -618,7 +1164,9 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             Icon(icon, color: Colors.teal, size: 28),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w500)),
+            Text(label,
+                style:
+                const TextStyle(color: Colors.teal, fontWeight: FontWeight.w500)),
           ],
         ),
       ),
@@ -626,31 +1174,45 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _popupContainer(List<Widget> children) {
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26.withOpacity(0.1),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+    return Stack(
+      children: [
+        // semi-transparent background
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _showAttachmentOptions = false;
+              _showQuickOptions = false;
+            });
+          },
+          behavior: HitTestBehavior.translucent, // ✅ allow taps to pass through
+          child: Container(
+            color: Colors.black38, // optional: darken background
+          ),
+        ),
+        // The popup itself
+        Center(
+          child: Material(
+            borderRadius: BorderRadius.circular(16),
+            elevation: 4,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: children,
+              ),
             ),
-          ],
+          ),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: children,
-        ),
-      ),
+      ],
     );
   }
 
   Future<void> _pickFile() async {
+    print("🔹 pickFile called");
     FilePickerResult? result = await FilePicker.platform.pickFiles();
     if (result != null && result.files.single.path != null) {
       setState(() => _selectedFile = File(result.files.single.path!));
@@ -660,38 +1222,41 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Widget _chatBottomBar() {
-    return BottomAppBar(
-      color: Colors.teal,
-      elevation: 8,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _BottomIcon(
-              icon: FontAwesomeIcons.folder,
-              label: "Journeys",
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const JourneysScreen()), // replace with JourneysScreen()
-                );
-              },
-            ),
-            const _BottomIcon(icon: FontAwesomeIcons.fileText, label: "Notes"),
-            const _BottomIcon(icon: FontAwesomeIcons.calendar, label: "Reservations"),
-            const _BottomIcon(icon: FontAwesomeIcons.shopify, label: "Shopify"),
-            const _BottomIcon(icon: FontAwesomeIcons.shoppingBag, label: "Woo"),
-          ],
-        ),
-      ),
-    );
-  }
+  // Widget _chatBottomBar() {
+  //   return BottomAppBar(
+  //     color: Colors.teal,
+  //     elevation: 8,
+  //     child: Padding(
+  //       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+  //       child: Row(
+  //         mainAxisAlignment: MainAxisAlignment.spaceAround,
+  //         children: [
+  //           _BottomIcon(
+  //             icon: FontAwesomeIcons.folder,
+  //             label: "Journeys",
+  //             onTap: () {
+  //               Navigator.push(
+  //                 context,
+  //                 MaterialPageRoute(builder: (context) => const JourneysScreen()),
+  //               );
+  //             },
+  //           ),
+  //           const _BottomIcon(icon: FontAwesomeIcons.fileText, label: "Notes"),
+  //           const _BottomIcon(icon: FontAwesomeIcons.calendar, label: "Reservations"),
+  //           const _BottomIcon(icon: FontAwesomeIcons.shopify, label: "Shopify"),
+  //           const _BottomIcon(icon: FontAwesomeIcons.shoppingBag, label: "Woo"),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _chatAppBar() {
     final userIndex = _chats.indexWhere((chat) => chat['name'] == _selectedUser);
-    final user = _chats[userIndex];
+    final user = userIndex != -1 ? _chats[userIndex] : {
+      'name': _selectedUser ?? 'Unknown',
+      'avatar': '',
+    };
 
     return GestureDetector(
       onTap: () {
@@ -700,7 +1265,7 @@ class _ChatScreenState extends State<ChatScreen> {
           MaterialPageRoute(
             builder: (context) => ContactInfoScreen(
               name: user['name'],
-              phone: "+91 9823472345",
+              phone: _selectedPhone ?? "+91 0000000000",
               email: "arjun@example.com",
               country: "India",
               subscriptionStatus: "Active",
@@ -716,7 +1281,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
                 // ✅ Update chat list data in memory
                 setState(() {
-                  user['avatar'] = newPath;
+                  if (userIndex != -1) _chats[userIndex]['avatar'] = newPath;
                 });
               },
             ),
@@ -729,13 +1294,20 @@ class _ChatScreenState extends State<ChatScreen> {
             future: _getSavedAvatar(user['name']),
             builder: (context, snapshot) {
               final savedAvatar = snapshot.data;
-              final avatarToShow = savedAvatar ?? user['avatar'];
+              final avatarToShow = savedAvatar ?? user['avatar'] ?? '';
               return CircleAvatar(
-                radius: 20,
+                radius: 24,
+                backgroundColor: Colors.grey.shade300,
                 backgroundImage: avatarToShow.toString().startsWith('http')
                     ? NetworkImage(avatarToShow)
-                    : FileImage(File(avatarToShow)) as ImageProvider,
+                    : (avatarToShow.toString().isNotEmpty
+                    ? FileImage(File(avatarToShow)) as ImageProvider
+                    : null),
+                child: (avatarToShow == null || avatarToShow.isEmpty)
+                    ? const Icon(Icons.person, color: Colors.white)
+                    : null,
               );
+
             },
           ),
           const SizedBox(width: 8),
@@ -745,9 +1317,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Text(
                 user['name'],
                 style: const TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16),
+                    color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16),
               ),
               const Text(
                 "tap here for contact info",
@@ -759,7 +1329,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
-
 }
 
 class _BottomIcon extends StatelessWidget {
@@ -771,25 +1340,16 @@ class _BottomIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.white, size: 20),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontSize: 11),
-          ),
-        ],
-      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, color: Colors.white, size: 18),
+        const SizedBox(height: 6),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
+      ]),
     );
   }
 }
-
-
-
 
 class ContactInfoScreen extends StatefulWidget {
   final String name;
