@@ -313,13 +313,14 @@ class _ChatScreenState extends State<ChatScreen> {
               : AppBar(
           backgroundColor: Colors.white,
           elevation: 0,
+            centerTitle: true,
           titleSpacing: 0,
           title: _isChatOpen
               ? _chatAppBar()
               : _isSearching
               ? _buildSearchField()
               : const Text(
-            'Chats',
+            '    Chats',
             style: TextStyle(
               color: Colors.black,
               fontWeight: FontWeight.bold,
