@@ -3,6 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart';
+
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 class CampaignScreen extends StatefulWidget {
   const CampaignScreen({super.key});
 
@@ -14,8 +21,9 @@ class _CampaignScreenState extends State<CampaignScreen> {
   List<dynamic> campaigns = [];
   bool isLoading = true;
 
-  List<dynamic> recentCampaigns = [];
-
+  // ▼▼ NEW TOGGLES ▼▼
+  bool showAll = true; // default
+  bool showApi = false;
 
   @override
   void initState() {
@@ -33,8 +41,15 @@ class _CampaignScreenState extends State<CampaignScreen> {
         return;
       }
 
-      final url =
-          "https://anantkamalwademo.online/api/wpbox/getCampaigns?token=$token&type=api";
+      // ▼▼ DYNAMIC URL BASED ON CHECKBOX ▼▼
+      String url =
+          "https://anantkamalwademo.online/api/wpbox/getCampaigns?token=$token";
+
+      if (showApi) {
+        url += "&type=api";
+      }
+
+      print("CALLING URL: $url");
 
       final response = await http.get(Uri.parse(url));
 
@@ -59,102 +74,132 @@ class _CampaignScreenState extends State<CampaignScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        centerTitle: true,
         title: const Text(
           "Campaigns",
-          style: TextStyle(fontSize: 20, color: Colors.black, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: 22,
+            color: Colors.black,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
       ),
-
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-
-            const Text(
-              "Campaign Performance",
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 14),
-
-            /// ---- Top Performance Cards ----
-            Row(
+      body: SafeArea(
+        top: true,
+        bottom: true, // ensures content doesn't overlap gesture bars
+        child: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+          onRefresh: fetchCampaigns,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _metricBox(
-                  value: campaigns.length.toString(),
-                  label: "Total Campaigns",
+                const SizedBox(height: 10),
+
+                const Text(
+                  "Campaign Performance",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                const SizedBox(height: 14),
+
+                Row(
+                  children: [
+                    _metricBox(
+                      value: campaigns.length.toString(),
+                      label: "Total Campaigns",
+                    ),
+                    const SizedBox(width: 10),
+                    _progressMetricBox(
+                      value: "90",
+                      label: "Messages Sent",
+                      progressPercent: 0.24,
+                      footer: "24.5% of total contacts",
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _progressMetricBox(
+                      value: "53.3%",
+                      label: "Delivery Rate",
+                      progressPercent: 0.53,
+                      footer: "48 delivered  •  90 sent",
+                    ),
+                    const SizedBox(width: 10),
+                    _progressMetricBox(
+                      value: "93.8%",
+                      label: "Read Rate",
+                      progressPercent: 0.93,
+                      footer: "45 read  •  0 clicks",
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                _overviewSection(),
+                const SizedBox(height: 20),
+
+                // ▼ FILTER CHECKBOXES ▼
+                Row(
+                  children: [
+                    Checkbox(
+                      value: showAll,
+                      onChanged: (val) {
+                        setState(() {
+                          showAll = true;
+                          showApi = false;
+                          isLoading = true;
+                        });
+                        fetchCampaigns();
+                      },
+                    ),
+                    const Text("All Campaigns"),
+                    const SizedBox(width: 20),
+                    Checkbox(
+                      value: showApi,
+                      onChanged: (val) {
+                        setState(() {
+                          showApi = true;
+                          showAll = false;
+                          isLoading = true;
+                        });
+                        fetchCampaigns();
+                      },
+                    ),
+                    const Text("API Campaigns"),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ▼ Campaign List ▼
+                campaigns.isEmpty
+                    ? const Text("No Campaigns Found")
+                    : ListView.builder(
+                  itemCount: campaigns.length,
+                  shrinkWrap: true, // fix for infinite height
+                  physics:
+                  const NeverScrollableScrollPhysics(), // scroll stays on parent
+                  itemBuilder: (context, index) {
+                    return _campaignItem(item: campaigns[index]);
+                  },
                 ),
 
-                const SizedBox(width: 10),
-                _progressMetricBox(
-                  value: "90",
-                  label: "Messages Sent",
-                  progressPercent: 0.24,
-                  footer: "24.5% of total contacts",
-                ),
+                const SizedBox(height: 20),
               ],
             ),
-
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                _progressMetricBox(
-                  value: "53.3%",
-                  label: "Delivery Rate",
-                  progressPercent: 0.53,
-                  footer: "48 delivered  •  90 sent",
-                ),
-                const SizedBox(width: 10),
-                _progressMetricBox(
-                  value: "93.8%",
-                  label: "Read Rate",
-                  progressPercent: 0.93,
-                  footer: "45 read  •  0 clicks",
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            /// ---- Overview Box ----
-            _overviewSection(),
-
-            const SizedBox(height: 20),
-
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
-                  "All Campaigns",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            /// ---- Dynamic Campaign List ----
-            campaigns.isEmpty
-                ? const Text("No Campaigns Found", style: TextStyle(color: Colors.grey))
-                : Column(
-              children: campaigns.map((item) {
-                return _campaignItem(item: item);
-              }).toList(),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
+
 
   /// -------- METRIC CARDS ----------
   Widget _metricBox({required String value, required String label}) {
@@ -175,7 +220,9 @@ class _CampaignScreenState extends State<CampaignScreen> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            Text(label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
           ],
         ),
       ),
@@ -196,9 +243,11 @@ class _CampaignScreenState extends State<CampaignScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-
+            Text(value,
+                style:
+                const TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+            Text(label,
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
             Column(
               children: [
                 ClipRRect(
@@ -211,7 +260,9 @@ class _CampaignScreenState extends State<CampaignScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(footer, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                Text(footer,
+                    style: const TextStyle(
+                        fontSize: 11, color: Colors.black54)),
               ],
             ),
           ],
@@ -223,7 +274,8 @@ class _CampaignScreenState extends State<CampaignScreen> {
   Widget _overviewSection() {
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: _cardDecoration(color: const Color(0xFFF4F4F4)),
+      decoration:
+      _cardDecoration(color: const Color(0xFFF4F4F4), shadow: false),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: const [
@@ -235,15 +287,14 @@ class _CampaignScreenState extends State<CampaignScreen> {
       ),
     );
   }
-  Widget _campaignItem({
-    required Map<String, dynamic> item,
-  }) {
+
+  Widget _campaignItem({required Map<String, dynamic> item}) {
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => CampaignDetailsScreen(campaign: item),
+            builder: (_) => CampaignDetailScreen(item: item),
           ),
         );
       },
@@ -255,18 +306,22 @@ class _CampaignScreenState extends State<CampaignScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(item['name'] ?? "Unnamed",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                style:
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 6),
-            Text("${item['is_active'] == 1 ? "Active" : "Inactive"} • Created ${item['created_at']?.substring(0, 10) ?? "Unknown"}",
-                style: const TextStyle(color: Colors.grey)),
+            Text(
+              "${item['is_active'] == 1 ? "Active" : "Inactive"} • Created ${item['created_at']?.substring(0, 10) ?? "Unknown"}",
+              style: const TextStyle(color: Colors.grey),
+            ),
             const SizedBox(height: 10),
             Row(
               children: [
                 _badge("${item['total_contacts']} Contacts", Colors.green.shade100),
                 const SizedBox(width: 8),
-                Text("Sent: ${item['sent']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                Text("Sent: ${item['sent']}",
+                    style: const TextStyle(color: Colors.grey, fontSize: 11)),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -274,19 +329,22 @@ class _CampaignScreenState extends State<CampaignScreen> {
   }
 
 
-  BoxDecoration _cardDecoration({Color color = Colors.white, bool shadow = false}) {
+  BoxDecoration _cardDecoration(
+      {Color color = Colors.white, bool shadow = false}) {
     return BoxDecoration(
       color: color,
       borderRadius: BorderRadius.circular(12),
       border: shadow ? null : Border.all(color: Colors.black12),
-      boxShadow: shadow ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6)] : [],
+      boxShadow:
+      shadow ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6)] : [],
     );
   }
 
   Widget _badge(String text, Color bgColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(20)),
+      decoration:
+      BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(20)),
       child: Text(text, style: const TextStyle(fontSize: 11)),
     );
   }
@@ -305,9 +363,12 @@ class _overviewTile extends StatelessWidget {
       children: [
         Icon(icon, size: 24, color: Colors.green),
         const SizedBox(height: 4),
-        Text(count, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        Text(count,
+            style: const TextStyle(
+                fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 2),
-        Text(title, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+        Text(title,
+            style: const TextStyle(fontSize: 12, color: Colors.black54)),
       ],
     );
   }
@@ -315,192 +376,169 @@ class _overviewTile extends StatelessWidget {
 
 
 
+class CampaignDetailScreen extends StatelessWidget {
+  final Map<String, dynamic> item;
 
-
-
-class CampaignDetailsScreen extends StatelessWidget {
-  final Map<String, dynamic> campaign;
-
-  const CampaignDetailsScreen({super.key, required this.campaign});
+  const CampaignDetailScreen({super.key, required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final createdDate = (campaign['created_at'] ?? "").toString().split("T").first;
-    final media = campaign['media_link'];
+    final delivered = item['delivered_to'] ?? 0;
+    final total = item['total_contacts'] ?? 1;
+    final read = item['read_by'] ?? 0;
+    final clicks =  item['used'] ?? 0;
+
+    double deliveryRate = total == 0 ? 0 : delivered / total;
+    double readRate = delivered == 0 ? 0 : read / delivered;
+    double engagementRate = delivered == 0 ? 0 : clicks / delivered;
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
+        title: Text(item['name'] ?? "Campaign Details"),
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          "Campaigns detailed",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
+        foregroundColor: Colors.black,
       ),
-
+      backgroundColor: Colors.white,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            _campaignHeader(),
-
-            const SizedBox(height: 20),
-
-            // Dates Row
+            // TITLE + STATUS
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("$createdDate  Created", style: _boldGreyStyle()),
-                Text("$createdDate  Last activity", style: _boldGreyStyle()),
+                Text(
+                  item['name'] ?? "",
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: item['is_active'] == 1
+                        ? Colors.green.shade100
+                        : Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    item['is_active'] == 1 ? "Completed" : "Inactive",
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                )
               ],
             ),
 
             const SizedBox(height: 20),
 
-            // Contacts box
-            _statsCard(
-              "${campaign['total_contacts'] ?? 0}",
-              "Contacts Reached",
-              "${((campaign['total_contacts'] ?? 0) / (campaign['total_contacts'] == 0 ? 1 : campaign['total_contacts']) * 100).toStringAsFixed(2)}% of total contacts",
-            ),
-
-            const SizedBox(height: 20),
-
-            // 3 Statistic Cards
+            // METRICS ROW (Three Cards)
             Row(
               children: [
-                Expanded(child: _metricCard(
+                _metricCard(
                   title: "Delivery Rate",
-                  delivered: campaign['delivered_to'],
-                  total: campaign['total_contacts'],
-                )),
+                  percent: (deliveryRate * 100).toStringAsFixed(1),
+                  valueText: "$delivered delivered • $total total",
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: _metricCard(
+                _metricCard(
                   title: "Read Rate",
-                  delivered: campaign['read_by'],
-                  total: campaign['delivered_to'],
-                )),
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            Row(
-              children: [
-                Expanded(child: _metricCard(
+                  percent: (readRate * 100).toStringAsFixed(1),
+                  valueText: "$read read • $delivered delivered",
+                ),
+                const SizedBox(width: 10),
+                _metricCard(
                   title: "Engagement",
-                  delivered: campaign['sent'],
-                  total: campaign['read_by'],
-                )),
+                  percent: (engagementRate * 100).toStringAsFixed(1),
+                  valueText: "$clicks clicks • $read read",
+                ),
               ],
             ),
 
-            const SizedBox(height: 25),
+            const SizedBox(height: 20),
 
-            // Media Block
+            // CONTACTS REACHED BOX
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2FF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    total.toString(),
+                    style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text("Contacts Reached"),
+                  Text("${((total / 385) * 100).toStringAsFixed(2)}% of total contacts",
+                      style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                ],
+              ),
+            ),
 
+            const SizedBox(height: 20),
+
+            // TEMPLATE NAME BOX
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                item['trigger'] ?? "",
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+
+            const SizedBox(height: 30),
           ],
         ),
       ),
     );
   }
 
-  // ---------------- UI WIDGETS ---------------- //
-
-  Widget _campaignHeader() {
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.send, color: Colors.green, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              campaign['name'] ?? "No Name",
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+  Widget _metricCard(
+      {required String title,
+        required String percent,
+        required String valueText}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.black12),
+        ),
+        child: Column(
+          children: [
+            Text(
+              "$percent%",
+              style: const TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.bold),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              campaign['template_id'].toString(),
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
-          const SizedBox(width: 6),
-          const Icon(Icons.visibility, color: Colors.grey, size: 20)
-        ],
+            const SizedBox(height: 6),
+            Text(title,
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            const SizedBox(height: 10),
+            Text(valueText,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 11, color: Colors.black54)),
+          ],
+        ),
       ),
     );
   }
-
-  Widget _statsCard(String count, String title, String percent) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE6FFCF),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(count, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          Text(title, style: const TextStyle(fontSize: 14)),
-          const SizedBox(height: 5),
-          Text(percent, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _metricCard({required String title, required num delivered, required num total}) {
-    final percent = total == 0 ? 0 : (delivered / total) * 100;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("${percent.toStringAsFixed(0)}%", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          Text(title),
-          const SizedBox(height: 10),
-          Text("$delivered delivered / $total total", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: percent / 100,
-            minHeight: 6,
-            backgroundColor: Colors.grey.shade200,
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  TextStyle _boldGreyStyle() =>
-      TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.grey.shade600);
 }
-
 
 
 

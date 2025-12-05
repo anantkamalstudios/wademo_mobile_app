@@ -11,6 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
 
+  intl: ^0.20.2
+
 
   cupertino_icons: ^1.0.8
   firebase_core: ^4.2.0
@@ -31,7 +33,13 @@ dependencies:
   path: ^1.8.3
   path_provider: ^2.0.15
   flutter_launcher_icons: ^0.11.0
-  connectivity_plus: ^6.0.1
+  firebase_messaging: 16.0.4
+  flutter_local_notifications: ^17.0.0
+  connectivity_plus:
+  provider:
+
+
+
 
 
 
@@ -44,14 +52,8 @@ flutter_icons:
   android: true
   ios: true
   image_path: "assets/app_icon.png"
-  flutter_lints: ^5.0.0
-
 
 flutter:
-
-
-
-
   uses-material-design: true
 
   assets:

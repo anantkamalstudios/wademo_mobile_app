@@ -92,7 +92,8 @@ class _SplashScreenState extends State<SplashScreen>
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       const SizedBox(height: 20),
                       Text(
@@ -105,17 +106,16 @@ class _SplashScreenState extends State<SplashScreen>
                           letterSpacing: 1.1,
                         ),
                       ),
-                      const SizedBox(height: 14),
                       Image.asset(
-                        "assets/banner.png",
+                        "assets/new_banner.png",
                         fit: BoxFit.cover,
                         width: MediaQuery.of(context).size.width * 1.05,
                         height: MediaQuery.of(context).size.height * 0.55,
                       ),
-                      const SizedBox(height: 12),
                     ],
                   ),
                 ),
+
               ),
               AnimatedBuilder(
                 animation: logoController,

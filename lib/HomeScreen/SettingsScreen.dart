@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../Screens/LoginScreen.dart';
@@ -69,14 +72,14 @@ class SettingsScreen extends StatelessWidget {
 // Inside SettingsScreen widget, add a new section or item:
 
 
-      // ====== BUSINESS ======
-            _settingsSection(
-              title: "Business",
-              children: [
-                _settingsItem("Business info", Icons.public),
-                _settingsItem("API Key", Icons.vpn_key_outlined),
-              ],
-            ),
+            // ====== BUSINESS ======
+            // _settingsSection(
+            //   title: "Business",
+            //   children: [
+            //     _settingsItem("Business info", Icons.public),
+            //     _settingsItem("API Key", Icons.vpn_key_outlined),
+            //   ],
+            // ),
 
             _settingsSection(
               title: "Account Actions",
@@ -102,10 +105,10 @@ class SettingsScreen extends StatelessWidget {
             ),
 
             // ====== SUBSCRIPTION ======
-            _settingsSection(
-              title: "Subscription",
-              children: [],
-            ),
+            // _settingsSection(
+            //   title: "Subscription",
+            //   children: [],
+            // ),
           ],
         ),
       ),
@@ -184,6 +187,8 @@ class SettingsScreen extends StatelessWidget {
 }
 
 
+
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -196,10 +201,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
 
+  File? _profileImage;   // <-- image file
+
   @override
   void initState() {
     super.initState();
-    _loadUserData();       // <-- load saved data here
+    _loadUserData();
   }
 
   Future<void> _loadUserData() async {
@@ -209,7 +216,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _nameController.text = prefs.getString("name") ?? "";
       _emailController.text = prefs.getString("email") ?? "";
       _phoneController.text = prefs.getString("phone") ?? "";
+
+      final path = prefs.getString("profile_image");
+      if (path != null && File(path).existsSync()) {
+        _profileImage = File(path);
+      }
     });
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final img = await picker.pickImage(source: ImageSource.gallery);
+
+    if (img != null) {
+      setState(() {
+        _profileImage = File(img.path);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("profile_image", img.path);
+    }
   }
 
   @override
@@ -238,6 +264,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 20),
 
+              // ------------------ PROFILE IMAGE UI ------------------
+              Center(
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 60,
+                      backgroundColor: Colors.grey[300],
+                      backgroundImage:
+                      _profileImage != null ? FileImage(_profileImage!) : null,
+                      child: _profileImage == null
+                          ? const Icon(Icons.person, size: 60, color: Colors.grey)
+                          : null,
+                    ),
+
+                    // Edit Icon
+                    Positioned(
+                      bottom: 0,
+                      right: 4,
+                      child: InkWell(
+                        onTap: _pickImage,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.edit, size: 18, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              // ------------------ NAME ------------------
               TextField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -245,9 +308,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
-
               const SizedBox(height: 12),
 
+              // ------------------ EMAIL ------------------
               TextField(
                 controller: _emailController,
                 decoration: const InputDecoration(
@@ -255,9 +318,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
-
               const SizedBox(height: 12),
 
+              // ------------------ PHONE ------------------
               Row(
                 children: [
                   Container(
@@ -285,6 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 20),
 
+              // ------------------ SAVE BUTTON ------------------
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -315,6 +379,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+
 
 
 
@@ -468,4 +533,3 @@ class _UpdatePasswordScreenState extends State<UpdatePasswordScreen> {
     );
   }
 }
-
