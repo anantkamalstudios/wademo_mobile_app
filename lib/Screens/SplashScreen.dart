@@ -139,5 +139,11 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
+  @override
+  void dispose() {
+    logoController.dispose();
+    imageController.dispose();
+    super.dispose();
+  }
 
 }
