@@ -118,7 +118,6 @@ void main() async {
     sound: true,
   );
 
-
   // Background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -135,7 +134,6 @@ void main() async {
           navigatorKey.currentState?.pushNamed('/chat', arguments: data);
         }
       });
-
   runApp(const MyApp());
 }
 
@@ -162,7 +160,6 @@ class _MyAppState extends State<MyApp> {
       }
     });
 
-    // User taps notification
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       final phone = message.data['phone'];
       if (phone != null && navigatorKey.currentState != null) {
