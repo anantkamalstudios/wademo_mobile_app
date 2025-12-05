@@ -4,9 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
-import 'package:provider/provider.dart';        // for Provider access
-
+import 'package:provider/provider.dart';
 import '../Provider/HomeProvider.dart';
 import '../main.dart';
 import 'CampaignScreen.dart';
