@@ -1,11 +1,11 @@
 import 'dart:convert';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Services/authService.dart';
 import 'ForgotPasswordScreen.dart';
 import '../HomeScreen/HomeScreen.dart';
-
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,10 +19,24 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _auth = AuthService();
 
+
+
+
   bool _loading = false;
   bool _obscure = true;
   bool _rememberMe = false;
 
+
+  @override
+  void initState() {
+    super.initState();
+    _getFCMToken();
+  }
+
+  Future<void> _getFCMToken() async {
+    String? token = await FirebaseMessaging.instance.getToken();
+    print("FCM TOKEN: $token");
+  }
   // -------------------------------------------------------------------------
   //  🔹 ONLY ADDED PRINT STATEMENTS HERE
   // -------------------------------------------------------------------------
@@ -125,7 +139,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
             Image.asset(
               "assets/black_logo.png",
-              height: 100,
+              height: 70,
               fit: BoxFit.contain,
             ),
 
@@ -285,5 +299,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-
-

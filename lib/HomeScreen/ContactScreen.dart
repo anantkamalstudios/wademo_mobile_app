@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../main.dart';
+import 'ChatsScreen.dart';
+
 
 class ContactsScreen extends StatefulWidget {
   final Function(int)? onContactCountChange;
@@ -13,7 +16,11 @@ class ContactsScreen extends StatefulWidget {
 }
 
 
-class _ContactsScreenState extends State<ContactsScreen> {
+class _ContactsScreenState extends State<ContactsScreen> with AutomaticKeepAliveClientMixin {
+
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> contacts = [];
 
   bool selectionMode = false;
@@ -30,40 +37,47 @@ class _ContactsScreenState extends State<ContactsScreen> {
   @override
   void initState() {
     super.initState();
-    fetchContacts();
+    loadCachedContacts();
   }
 
-  Future<void> fetchContacts() async {
+  Future<void> loadCachedContacts() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? cached = prefs.getString("cached_contacts");
+
+    if (cached != null) {
+      List<Map<String, dynamic>> decoded =
+      List<Map<String, dynamic>>.from(jsonDecode(cached));
+
+      setState(() {
+        contacts = decoded;
+        isLoading = false;  // 👈 No loader
+      });
+
+      fetchContacts(background: true); // 👈 Fetch silently
+    } else {
+      fetchContacts(); // 👈 First ever load, show loader
+    }
+  }
+
+
+
+  Future<void> fetchContacts({bool background = false}) async {
+    if (!background) setState(() => isLoading = true);   // 👈 This stays
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString("token");
 
-    if (token == null || token.isEmpty) {
-      setState(() {
-        errorMessage = "Token not found. Please login again.";
-        isLoading = false;
-      });
-      return;
-    }
-
-    final url = "https://www.anantkamalwademo.online/api/wpbox/getContacts?token=$token";
-
-    print("📡 Calling API: $url");
+    final url = "https://anantkamalwademo.online/api/wpbox/getContacts?token=$token";
 
     try {
       final response = await http.get(Uri.parse(url));
 
-      print("📥 API Response Status: ${response.statusCode}");
-
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        print("📦 API Raw Data: $decoded");
-
         final List<dynamic> data = decoded["contacts"] ?? [];
 
-        contacts = data.map((item) {
+        List<Map<String, dynamic>> result = data.map((item) {
           final fullName = ((item["name"] ?? "") + " " + (item["lastname"] ?? "")).trim();
-
-          // Extract group name
           String groupName = "No Group";
           if (item["groups"] != null && item["groups"].isNotEmpty) {
             groupName = item["groups"][0]["name"] ?? "No Group";
@@ -72,81 +86,101 @@ class _ContactsScreenState extends State<ContactsScreen> {
           return {
             "name": fullName.isEmpty ? "No Name" : fullName,
             "phone": item["phone"]?.toString() ?? "",
-            "group": groupName,  // 🔥 SAVE GROUP HERE
+            "group": groupName,
           };
         }).toList();
 
-        if (widget.onContactCountChange != null) {
-          widget.onContactCountChange!(contacts.length);
+        contacts = result;
+        await saveContactsToPrefs(result);
+
+        if (!background) {
+          setState(() => isLoading = false);
         }
-
-        print("📌 Parsed Contact Count: ${contacts.length}");
-
-        setState(() => isLoading = false);
-      } else {
-        setState(() {
-          errorMessage = "Server error ${response.statusCode}";
-          isLoading = false;
-        });
       }
     } catch (e) {
-      print("❌ API error: $e");
-      setState(() {
-        errorMessage = "Failed to fetch data";
-        isLoading = false;
-      });
+      if (!background) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
 
+
+  Future<void> saveContactsToPrefs(List<Map<String, dynamic>> contacts) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString("cached_contacts", jsonEncode(contacts));
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: const [
-                Icon(Icons.arrow_back),
-                SizedBox(width: 10),
-                Text("Contacts",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            _rowStats(),
-
-            const SizedBox(height: 20),
-
-            isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : errorMessage != null
-                ? Text(errorMessage!, style: const TextStyle(color: Colors.red))
-           : selectedContact != null
-                ? _buildContactDetailCard()
-                : Column(
+    super.build(context);
+    return ExitWrapper(
+      child: Scaffold(
+        body: SafeArea(
+          top: true,
+          bottom: true, // ensures content doesn't overlap gesture nav bar
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildContactsActions(),
+                // ===== Header =====
+                Row(
+                  children: const [
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          "Contacts",
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 20),
 
-                _searchBar(),   // 👈 Add this
-
+                // ===== Stats Row =====
+                _rowStats(),
                 const SizedBox(height: 20),
-                _buildContactsList(),
 
+                // ===== Body Content =====
+                if (isLoading)
+                  const Center(child: CircularProgressIndicator())
+                else if (errorMessage != null)
+                  Text(errorMessage!, style: const TextStyle(color: Colors.red))
+                else if (selectedContact != null)
+                    _buildContactDetailCard()
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Contact actions (Add, Import, etc.)
+                        _buildContactsActions(),
+                        const SizedBox(height: 20),
+
+                        // Search bar
+                        _searchBar(),
+                        const SizedBox(height: 20),
+
+                        // Contact list
+                        _buildContactsList(),
+                      ],
+                    ),
               ],
             ),
-
-          ],
+          ),
         ),
       ),
     );
   }
+
 
   Widget _searchBar() {
     return TextField(
@@ -178,217 +212,245 @@ class _ContactsScreenState extends State<ContactsScreen> {
           phone.contains(searchQuery.toLowerCase());
     }).toList();
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: filteredContacts.length,
-      itemBuilder: (context, index) {
-        final contact = filteredContacts[index];
+    return SafeArea(
+      top: true,
+      bottom: true, // ensures content doesn't overlap gesture/navigation bar
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: filteredContacts.length,
+        itemBuilder: (context, index) {
+          final contact = filteredContacts[index];
 
-        return GestureDetector(
-          onLongPress: () {
-            setState(() {
-              selectionMode = true;
-              selectedIndexes.add(index);
-            });
-          },
-
-          onTap: () {
-            if (selectionMode) {
+          return GestureDetector(
+            onLongPress: () {
               setState(() {
-                if (selectedIndexes.contains(index)) {
-                  selectedIndexes.remove(index);
-                  if (selectedIndexes.isEmpty) selectionMode = false;
-                } else {
-                  selectedIndexes.add(index);
-                }
+                selectionMode = true;
+                selectedIndexes.add(index);
               });
-            } else {
-              setState(() {
-                selectedContact = contact;
-              });
-            }
-          },
+            },
 
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 5,
-                  offset: const Offset(0, 3),
+            onTap: () {
+              if (selectionMode) {
+                setState(() {
+                  if (selectedIndexes.contains(index)) {
+                    selectedIndexes.remove(index);
+                    if (selectedIndexes.isEmpty) selectionMode = false;
+                  } else {
+                    selectedIndexes.add(index);
+                  }
+                });
+              } else {
+                setState(() {
+                  selectedContact = contact;
+                });
+              }
+            },
+
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 5,
+                    offset: const Offset(0, 3),
+                  )
+                ],
+              ),
+                child: Row(
+                  children: [
+                    // Checkbox shown only in selectionMode
+                    selectionMode
+                        ? Checkbox(
+                      value: selectedIndexes.contains(index),
+                      onChanged: (v) {
+                        setState(() {
+                          if (v == true) {
+                            selectedIndexes.add(index);
+                          } else {
+                            selectedIndexes.remove(index);
+                            if (selectedIndexes.isEmpty) {
+                              selectionMode = false;
+                            }
+                          }
+                        });
+                      },
+                    )
+                        : const SizedBox(width: 0),
+
+                    const CircleAvatar(child: Icon(Icons.person)),
+                    const SizedBox(width: 10),
+
+                    // ⭐ FIX: Wrap Column inside Expanded
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            contact["name"],
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            contact["phone"],
+                            style: const TextStyle(color: Colors.grey),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 )
-              ],
+
             ),
-            child: Row(
+          );
+        },
+      ),
+    );
+  }
+
+
+
+  Widget _buildContactDetailCard() {
+    final contact = selectedContact!;
+
+    return SafeArea(
+      top: true,
+      bottom: true, // ensures content doesn't overlap notch or gesture/navigation bar
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 8,
+              color: Colors.black.withOpacity(0.08),
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            /// BACK BUTTON
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  selectedContact = null;
+                });
+              },
+              child: const Icon(Icons.arrow_back),
+            ),
+
+            const SizedBox(height: 16),
+
+            /// PROFILE HEADER
+            Row(
               children: [
-                // 👇 Show checkbox only when selectionMode is ON
-                selectionMode
-                    ? Checkbox(
-                  value: selectedIndexes.contains(index),
-                  onChanged: (v) {
-                    setState(() {
-                      if (v == true) {
-                        selectedIndexes.add(index);
-                      } else {
-                        selectedIndexes.remove(index);
-                        if (selectedIndexes.isEmpty) {
-                          selectionMode = false;
-                        }
-                      }
-                    });
-                  },
-                )
-                    : const SizedBox(width: 0),
-
-                const CircleAvatar(child: Icon(Icons.person)),
-                const SizedBox(width: 10),
-
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: Colors.grey.shade200,
+                  child: const Icon(Icons.person, color: Colors.black54),
+                ),
+                const SizedBox(width: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      contact["name"],
+                      contact["name"] ?? "Unknown",
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
+                          fontSize: 18, fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 3),
                     Text(
-                      contact["phone"],
+                      contact["phone"] ?? "",
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ],
                 ),
               ],
             ),
-          ),
-        );
-      },
-    );
-  }
 
+            const SizedBox(height: 25),
 
-  Widget _buildContactDetailCard() {
-    final contact = selectedContact!;
+            /// DETAILS
+            _detailRow("User", contact["name"]),
+            _detailTag(
+              "Groups",
+              contact["group"] ?? "No Group",
+              Colors.green.shade100,
+              Colors.green,
+            ),
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            blurRadius: 8,
-            color: Colors.black.withOpacity(0.08),
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          /// BACK BUTTON
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                selectedContact = null;
-              });
-            },
-            child: const Icon(Icons.arrow_back),
-          ),
+            _detailRow("Last Updated", "2024-06-24 10:45:00"), // Replace with API field
+            _detailRow("Phone", contact["phone"]),
+            _detailTag(
+              "Status",
+              "Subscribed", // Replace with API
+              Colors.green.shade100,
+              Colors.green,
+            ),
 
-          const SizedBox(height: 16),
+            const SizedBox(height: 25),
 
-          /// PROFILE HEADER
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: Colors.grey.shade200,
-                child: const Icon(Icons.person, color: Colors.black54),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    contact["name"] ?? "Unknown",
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold),
+            /// ACTION BUTTONS
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE9FFF2),
+                      foregroundColor: Colors.green,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.chat_outlined),
+                    label: const Text("Chat"),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(
+                            openChatDirectly: true,
+                            phone: contact["phone"],
+                            name: contact["name"],
+                            onChatStateChange: (value) {},
+                            onChatCountChange: (count) {},
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  Text(
-                    contact["phone"] ?? "",
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 25),
-
-          /// DETAILS
-          _detailRow("User", contact["name"]),
-          _detailTag(
-            "Groups",
-            contact["group"] ?? "No Group",
-            Colors.green.shade100,
-            Colors.green,
-          ),
-
-          _detailRow("Last Updated", "2024-06-24 10:45:00"), // Replace with API field
-          _detailRow("Phone", contact["phone"]),
-          _detailTag(
-            "Status",
-            "Subscribed", // Replace with API
-            Colors.green.shade100,
-            Colors.green,
-          ),
-
-          const SizedBox(height: 25),
-
-          /// ACTION BUTTONS
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE9FFF2),
-                    foregroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.chat_outlined),
-                  label: const Text("Chat"),
-                  onPressed: () {},
                 ),
-              ),
+                const SizedBox(width: 10),
+                IconButton(
+                    onPressed: () {},
+                    icon: const Icon(Icons.volume_off, color: Colors.redAccent)),
 
-              const SizedBox(width: 10),
+                IconButton(
+                    onPressed: () {},
+                    icon: const Icon(Icons.edit, color: Colors.green)),
 
-              IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.volume_off, color: Colors.redAccent)),
-
-              IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.edit, color: Colors.green)),
-
-              IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.delete_outline, color: Colors.red)),
-            ],
-          ),
-        ],
+                IconButton(
+                    onPressed: () {},
+                    icon: const Icon(Icons.delete_outline, color: Colors.red)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
+
 
   Widget _detailRow(String title, String? value) {
     return Padding(
@@ -589,7 +651,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
       return;
     }
 
-    final url = "https://www.anantkamalwademo.online/api/wpbox/getGroups?token=$token&showContacts=no";
+    final url = "https://anantkamalwademo.online/api/wpbox/getGroups?token=$token&showContacts=no";
 
     try {
       final response = await http.get(Uri.parse(url));
@@ -648,7 +710,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse("https://www.anantkamalwademo.online/api/wpbox/makeContact?token=$token"),
+        Uri.parse("https://anantkamalwademo.online/api/wpbox/makeContact?token=$token"),
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "name": nameCtrl.text.trim(),
@@ -721,87 +783,89 @@ class _AddContactScreenState extends State<AddContactScreen> {
         ),
       ),
 
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: SafeArea(
+        top: true,
+        bottom: true, // ensures content doesn't overlap notch or gesture/navigation bar
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
 
-            Center(
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 42,
-                    backgroundColor: Colors.grey.shade200,
-                    child: const Icon(Icons.person, size: 40),
-                  ),
-                  const SizedBox(height: 10),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade600,
-                      shape: const CircleBorder(),
-                      padding: const EdgeInsets.all(12),
+              Center(
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 42,
+                      backgroundColor: Colors.grey.shade200,
+                      child: const Icon(Icons.person, size: 40),
                     ),
-                    onPressed: () {},
-                    icon: const Icon(Icons.edit, size: 18),
-                    label: const SizedBox(),
-                  )
-                ],
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade600,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(12),
+                      ),
+                      onPressed: () {},
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: const SizedBox(),
+                    )
+                  ],
+                ),
               ),
-            ),
 
-            const SizedBox(height: 20),
-            _inputField("Name", "Enter your name", controller: nameCtrl),
-            _inputField("WhatsApp Number", "91*******", controller: phoneCtrl, keyboardType: TextInputType.number),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Groups", style: TextStyle(fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 6),
+              const SizedBox(height: 20),
+              _inputField("Name", "Enter your name", controller: nameCtrl),
+              _inputField("WhatsApp Number", "91*******", controller: phoneCtrl, keyboardType: TextInputType.number),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Groups", style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 6),
 
-                  groupLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      :DropdownButtonFormField<String>(
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    groupLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      hint: const Text("Select Group"),
+                      value: selectedGroup,
+                      items: groups.map((g) {
+                        return DropdownMenuItem<String>(
+                          value: g["name"]?.toString(),
+                          child: Text(g["name"]?.toString() ?? ""),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() => selectedGroup = val);
+                      },
                     ),
-                    hint: const Text("Select Group"),
-                    value: selectedGroup,
-                    items: groups.map((g) {
-                      return DropdownMenuItem<String>(
-                        value: g["name"]?.toString(),  // this can be null safely
-                        child: Text(g["name"]?.toString() ?? ""),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      setState(() => selectedGroup = val); // val is String? so this is safe
-                    },
-                  ),
 
+                    const SizedBox(height: 6),
 
-
-                  const SizedBox(height: 6),
-
-                  // Button to refresh groups
-                  TextButton(
-                    onPressed: fetchGroups,
-                    child: const Text("Load Groups"),
-                  ),
-                ],
+                    TextButton(
+                      onPressed: fetchGroups,
+                      child: const Text("Load Groups"),
+                    ),
+                  ],
+                ),
               ),
-            ),
 
-            _dropdownField("Country", ["India", "USA", "UK"], (val) => setState(() => selectedCountry = val)),
-            _inputField("Custom Field", "Custom info", controller: customCtrl),
-            _inputField("Email", "Email address", controller: emailCtrl),
-            _inputField("Location", "City or place", controller: locationCtrl),
-          ],
+              _dropdownField("Country", ["India", "USA", "UK"], (val) => setState(() => selectedCountry = val)),
+              _inputField("Custom Field", "Custom info", controller: customCtrl),
+              _inputField("Email", "Email address", controller: emailCtrl),
+              _inputField("Location", "City or place", controller: locationCtrl),
+            ],
+          ),
         ),
       ),
     );
   }
+
 
   Widget _inputField(String label, String hint, {required TextEditingController controller, TextInputType keyboardType = TextInputType.text}) {
     return Padding(

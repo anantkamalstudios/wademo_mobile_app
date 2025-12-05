@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 
+import '../main.dart';
 import 'CampaignScreen.dart';
 import 'ChatsScreen.dart';
 import 'ContactScreen.dart';
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int totalChats = 0;
   int totalCampaigns = 0;
   int totalContacts = 0;
+
 
   List<dynamic> recentCampaigns = [];
 
@@ -46,12 +48,36 @@ class _HomeScreenState extends State<HomeScreen> {
 
     user = auth.currentUser; // initialize user
     displayName = user?.displayName ?? "User"; // fallback
-    fetchCampaignCount(); // fetch campaigns on load
+    fetchCampaignCount();
+    fetchContactsCount();
   }
 
   void _handleChatState(bool isOpen) {
     setState(() => _isChatOpen = isOpen);
   }
+
+  Future<void> fetchContactsCount() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("token");
+
+    final url = "https://anantkamalwademo.online/api/wpbox/getContacts?token=$token";
+
+    try {
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final List<dynamic> data = decoded["contacts"] ?? [];
+
+        setState(() {
+          totalContacts = data.length; // ✅ update count
+        });
+      }
+    } catch (e) {
+      print("Error fetching contacts: $e");
+    }
+  }
+
 
   static const darkGreen = Color(0xFF063D2B);
   static const midGreen = Color(0xFF0B5D3A);
@@ -73,83 +99,78 @@ class _HomeScreenState extends State<HomeScreen> {
       const SettingsScreen(),
     ];
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: pages[_currentIndex],
+    return ExitWrapper(
+        child: WillPopScope(
+            onWillPop: () => showExitPopup(context), // handle hardware back button
+            child: Scaffold(
+              backgroundColor: Colors.white,
+              body: SafeArea(
+                top: true,
+                bottom: true, // ensures content doesn't go under gesture navigation
+                child: IndexedStack(
+                  index: _currentIndex,
+                  children: pages,
+                ),
+
+              ),
       bottomNavigationBar: _isChatOpen
           ? null
-          : BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        backgroundColor: const Color(0xFF004D40),
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white70,
-        iconSize: 26, // same everywhere
-
-        selectedLabelStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        unselectedLabelStyle: TextStyle(
-          fontSize: 12,
-        ),
-
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            label: "Home",
-          ),
-
-          BottomNavigationBarItem(
-            icon: Stack(
-              children: [
-                const Icon(Icons.chat_bubble_outline),
-                Positioned(
-                  right: 0,
-                  top: -4,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.green,
-                    ),
-                    child: const Text(
-                      '6',
-                      style: TextStyle(
+          : SizedBox(
+        // height: 65,
+        child: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          currentIndex: _currentIndex,
+          backgroundColor: const Color(0xFF004D40),
+          selectedItemColor: Colors.white,
+          unselectedItemColor: Colors.white70,
+          onTap: (index) => setState(() => _currentIndex = index),
+          items: [
+            const BottomNavigationBarItem(
+                icon: Icon(Icons.home_outlined), label: "Home"),
+            BottomNavigationBarItem(
+              icon: Stack(
+                children: [
+                  const Icon(Icons.chat_bubble_outline),
+                  Positioned(
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: const BoxDecoration(
                         color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const CircleAvatar(
+                        radius: 6,
+                        backgroundColor: Colors.green,
+                        child: Text(
+                          '6',
+                          style: TextStyle(
+                              fontSize: 8,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+              label: 'Chats',
             ),
-            label: "Chats",
-          ),
-
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.campaign_outlined),
-            label: "Campaigns",
-          ),
-
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.contacts_outlined),
-            label: "Contacts",
-          ),
-
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            label: "Settings",
-          ),
-        ],
+            const BottomNavigationBarItem(
+                icon: Icon(Icons.campaign_outlined), label: "Campaigns"),
+            const BottomNavigationBarItem(
+                icon: Icon(Icons.contacts_outlined), label: "Contacts"),
+            const BottomNavigationBarItem(
+                icon: Icon(Icons.settings_outlined), label: "Settings"),
+          ],
+        ),
       ),
-
-
-
+            ),
+        )
     );
+
   }
+
 
   Future<void> fetchCampaignCount() async {
     try {
@@ -158,21 +179,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (token.isEmpty) return;
 
+      // FETCH **ALL CAMPAIGNS** (same as Campaign Screen)
       final url =
-          "https://anantkamalwademo.online/api/wpbox/getCampaigns?token=$token&type=api";
+          "https://anantkamalwademo.online/api/wpbox/getCampaigns?token=$token";
 
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
-        if (jsonResponse['status'] == 'success') {
 
+        if (jsonResponse['status'] == 'success') {
           final items = jsonResponse['items'];
 
           setState(() {
-            totalCampaigns = items.length;
+            totalCampaigns = items.length; // SAME as campaign screen
 
-            /// take last 3 campaigns
+            // show last 3 campaigns
             recentCampaigns = items.take(3).toList();
           });
         }
@@ -181,6 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
       print("Error fetching campaigns: $e");
     }
   }
+
 
 
   void updateChatCount(int count) {
@@ -206,6 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onRefresh: refreshHomeData,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 16), // safe space at the bottom
           child: Column(
             children: [
               // HEADER BANNER
@@ -225,8 +249,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       right: -30,
                       bottom: 0,
                       child: Image.asset(
-                        "assets/banner.png",
-                        height: 200,
+                        "assets/new_banner.png",
+                        height: 170,
+                        width: 200,
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -245,17 +270,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               fontSize: 20,
                             ),
                           ),
-
-
-                          const SizedBox(height: 6),
-                          // const Text(
-                          //   "No-code chatbots,\nAutomate responses to\n sales and support messages.",
-                          //   style: TextStyle(
-                          //     color: Colors.white,
-                          //     fontSize: 11,
-                          //     height: 1.3,
-                          //   ),
-                          // ),
                           const SizedBox(height: 14),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -311,125 +325,31 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: _StatCard(
+                          child:_StatCard(
                             title: "Contact",
                             value: totalContacts.toString(),
                             sub: "1 new this month",
                             icon: Icons.contact_page,
                             bgIcon: Color(0xFFEAF6F0),
                           ),
+
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _StatCard(
                             title: "Campaigns",
-                            value: totalCampaigns.toString(),
+                            value: totalCampaigns.toString(), // ✔ Same count as Campaign screen
                             sub: "92.5% Read rate",
                             icon: Icons.send,
                             bgIcon: Color(0xFFEAF6F0),
                           ),
                         ),
+
                       ],
                     ),
                     const SizedBox(height: 16),
 
-                    _CardContainer(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: const [
-                                  Text("Active subscription",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w600)),
-                                  SizedBox(height: 6),
-                                  Text(
-                                    "Your subscription expires on 2050-05-24 05:03:17",
-                                    style: TextStyle(
-                                        color: Colors.black54, fontSize: 13),
-                                  ),
-                                ]),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: softGreen,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child:
-                            const Icon(Icons.calendar_today, color: midGreen),
-                          )
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    _CardContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Campaign Performance",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 8),
-                          const Text(
-                            "Geographical distribution of your last campaign",
-                            style: TextStyle(color: Colors.black54, fontSize: 13),
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () {},
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: midGreen,
-                                padding:
-                                const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8)),
-                              ),
-                              child: const Text(
-                                "View Full Reports",
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    _CardContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text("WhatsApp Business Details",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          SizedBox(height: 12),
-                          Text("Anantkamal Studios",
-                              style: TextStyle(fontWeight: FontWeight.w600)),
-                          SizedBox(height: 6),
-                          Text("Display Name Status: APPROVED",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("WhatsApp Number: +91 76202 37235",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Quality Rating: GREEN",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Messaging Limit: TIER_1K",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Can Send Message: AVAILABLE",
-                              style: TextStyle(color: Colors.black54)),
-                          Text("Organization: Sachin k",
-                              style: TextStyle(color: Colors.black54)),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 16),
+                    // Recent Campaigns Card
                     _CardContainer(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,8 +362,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-
-                          // If empty → show simple message
                           if (recentCampaigns.isEmpty)
                             const Text(
                               "No Recent Campaigns",
@@ -453,8 +371,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 color: Colors.black54,
                               ),
                             ),
-
-                          // If not empty → show list items
                           ...recentCampaigns.map((item) {
                             return Container(
                               margin: const EdgeInsets.only(bottom: 8),
@@ -502,8 +418,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
 
-
-
                     const SizedBox(height: 30),
                   ],
                 ),
@@ -514,6 +428,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
 }
 
 // ---------------- REUSABLE WIDGETS -------------------

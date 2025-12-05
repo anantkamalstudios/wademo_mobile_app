@@ -5,57 +5,65 @@ class JourneysScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
+    return SafeArea(
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.teal),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          "Contact journeys",
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.teal),
+            onPressed: () => Navigator.pop(context),
           ),
+          title: const Text(
+            "Contact journeys",
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+          ),
+          centerTitle: true,
         ),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            _journeyInput("Initial"),
-            const SizedBox(height: 16),
-            _journeyInput("Process"),
-            const SizedBox(height: 16),
-            _journeyInput("Moderate"),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(6),
+        body: Padding(
+
+          padding: const EdgeInsets.all(20),
+          child: SingleChildScrollView(   // <-- FIX
+            child: Column(
+              children: [
+                _journeyInput("Initial"),
+                const SizedBox(height: 16),
+                _journeyInput("Process"),
+                const SizedBox(height: 16),
+                _journeyInput("Moderate"),
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    onPressed: () {},
+                    child: const Text(
+                      "Manage journeys",
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
                   ),
                 ),
-                onPressed: () {},
-                child: const Text(
-                  "Manage journeys",
-                  style: TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
+
       ),
     );
   }
+
 
   Widget _journeyInput(String label) {
     return TextField(
