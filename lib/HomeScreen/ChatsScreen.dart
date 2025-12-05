@@ -58,6 +58,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Map<String,int> lastMessagePerChat = {};
 
+
+
   // In your State class
   Map<String, dynamic>? _replyingToMessage; // The message being replied to
 
@@ -88,6 +90,102 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Map<String, dynamic>> _messages = [];
 
   final TextEditingController _messageController = TextEditingController();
+
+  Future<bool> _handleBackPress() async {
+
+    // 1) Close image preview
+    if (_previewImagePath != null) {
+      setState(() => _previewImagePath = null);
+      return false;
+    }
+
+    // 2) Exit selection mode
+    if (_isSelectionMode) {
+      setState(() {
+        _selectedMessageIndexes.clear();
+        _isSelectionMode = false;
+      });
+      return false;
+    }
+
+    // 3) Close quick options popup
+    if (_showQuickOptions) {
+      setState(() => _showQuickOptions = false);
+      return false;
+    }
+
+    // 4) Close attachment popup
+    if (_showAttachmentOptions) {
+      setState(() => _showAttachmentOptions = false);
+      return false;
+    }
+
+    // 5) Close chat view (go back to chat list)
+    if (_isChatOpen) {
+      setState(() {
+        _isChatOpen = false;
+        _selectedPhone = null;
+        _selectedUser = null;
+      });
+      widget.onChatStateChange(false);
+      return false;
+    }
+
+    // 6) Exit search mode
+    if (_isSearching) {
+      setState(() {
+        _isSearching = false;
+        _searchQuery = "";
+      });
+      return false;
+    }
+
+    // LAST: allow app to exit or go back
+    return true;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (widget.openChatDirectly) {
+      NotificationService().setCurrentOpenChat(widget.phone ?? '');
+    }
+
+    var androidInit = const AndroidInitializationSettings('@mipmap/ic_launcher');
+    var iosInit = const DarwinInitializationSettings();
+    var initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
+
+    flutterLocalNotificationsPlugin.initialize(initSettings);
+
+
+    _loadLastNotifiedMap(); // Load persisted notification map
+
+    // _pollingTimer = Timer.periodic(Duration(seconds: 2), (_) async {
+    //   if (!_isChatOpen) {
+    //     await _fetchConversationsAndPopulate();
+    //   }
+    //
+    //   if (_isChatOpen && _selectedPhone != null) {
+    //     final chat = _chats.firstWhere(
+    //             (c) => c['phone'].toString() == _selectedPhone.toString(),
+    //         orElse: () => {});
+    //
+    //     if (chat.isNotEmpty) {
+    //       await _fetchMessages(chat['id'].toString());
+    //     }
+    //   }
+    // });
+
+
+
+    if (widget.openChatDirectly) {
+      _isChatOpen = true;
+      _selectedPhone = widget.phone;
+      _selectedUser = widget.name;
+      _fetchMessages(widget.phone!);
+    }
+    _loadTokenAndFetchChats();
 
 
   @override
@@ -141,6 +239,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   @override
+  void dispose() {
+    NotificationService().clearCurrentOpenChat();
+    super.dispose();
+  }
+
+
+  @override
   Widget build(BuildContext context) {
     List<Map<String, dynamic>> filteredChats = _chats
         .where((chat) => chat['name']
@@ -155,6 +260,37 @@ class _ChatScreenState extends State<ChatScreen> {
       return bTime.compareTo(aTime); // latest first
     });
 
+    return WillPopScope(
+      onWillPop: _handleBackPress,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+
+        appBar: _previewImagePath != null
+            ? null
+            : AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+          titleSpacing: 0,
+
+          title: _isChatOpen
+              ? _chatAppBar()
+              : _isSearching
+              ? _buildSearchField()
+              : const Text(
+            'Chats',
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+              fontSize: 22,
+            ),
+          ),
+
+          actions: _isChatOpen
+              ? [
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: Colors.teal),
+              onPressed: () {},
     return ExitWrapper(
       child: WillPopScope(
         onWillPop: () => showExitPopup(context),
@@ -188,6 +324,13 @@ class _ChatScreenState extends State<ChatScreen> {
             actions: _isChatOpen
                 ? [
               IconButton(
+                icon: const Icon(Icons.search, color: Colors.black54),
+                onPressed: () {
+                  setState(() => _isSearching = true);
+                },
+              ),
+
+            if (_isSearching)
                 icon: const Icon(Icons.more_vert, color: Colors.teal),
                 onPressed: () {},
               ),
@@ -217,6 +360,56 @@ class _ChatScreenState extends State<ChatScreen> {
                 const Icon(Icons.more_vert, color: Colors.black54),
                 onPressed: () {},
               ),
+
+            IconButton(
+              icon:
+              const Icon(Icons.more_vert, color: Colors.black54),
+              onPressed: () {},
+            ),
+          ],
+
+          leading: _isChatOpen
+              ? IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.teal),
+            onPressed: () {
+              setState(() {
+                _isChatOpen = false;
+                _showQuickOptions = false;
+                _showAttachmentOptions = false;
+                _selectedImage = null;
+                _selectedFile = null;
+                _selectedPhone = null;
+              });
+              widget.onChatStateChange?.call(false);
+            },
+          )
+              : _isSearching
+              ? IconButton(
+            icon: const Icon(Icons.arrow_back,
+                color: Colors.black54),
+            onPressed: () {
+              setState(() {
+                _isSearching = false;
+                _searchQuery = "";
+              });
+            },
+          )
+              : null,
+        ),
+
+        // ✅ SafeArea moved INSIDE Scaffold
+        body: SafeArea(
+          top: true,
+          bottom: true,
+          // child: _chatListView(filteredChats),
+           child: _isChatOpen ? _chatView() : _chatListView(filteredChats),
+        ),
+      ),
+    );
+  }
+
+
+
             ],
 
             leading: _isChatOpen
@@ -280,6 +473,77 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _cacheMessages(String chatId, List<Map<String, dynamic>> messages) async {
+    final prefs = await SharedPreferences.getInstance();
+    prefs.setString("cached_$chatId", jsonEncode(messages));
+  }
+
+
+  Future<void> _loadCachedMessages(String chatId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString("cached_$chatId");
+
+    if (cached != null) {
+      List decoded = jsonDecode(cached);
+      setState(() {
+        _messages = List<Map<String, dynamic>>.from(decoded);
+      });
+    }
+  }
+
+
+
+  Widget _chatListView(List<Map<String, dynamic>> chats) {
+    // if (chats.isEmpty) {
+    //   return const Center(
+    //     child: Text(
+    //       "No chats found",
+    //       style: TextStyle(color: Colors.black54, fontSize: 16),
+    //     ),
+    //   );
+    // }
+
+    return SafeArea( // 🔹 Wrap entire chat list
+      top: false,   // already handled by global SafeArea in Scaffold
+      bottom: true, // ensure content above gesture bar
+      child: RefreshIndicator(
+        onRefresh: _refreshChats,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (scrollInfo) {
+            if (!_isLoadingMore &&
+                _hasMore &&
+                scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 50) {
+              _fetchConversationsAndPopulate(loadMore: true);
+            }
+            return false;
+          },
+          child: ListView.separated(
+            itemCount: chats.length + (_hasMore ? 1 : 0),
+            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
+            itemBuilder: (context, index) {
+              if (index == chats.length) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final chat = chats[index];
+              return ListTile(
+                onTap: () async {
+                  String chatId = chat['id'].toString();
+
+                  setState(() {
+                    _isChatOpen = true;
+                    _selectedUser = chat['name'];
+                    _selectedPhone = chat['phone'].toString();
+                  });
+
+                  widget.onChatStateChange(true);
+                  // 🚀 Show cached messages instantly
+                  await _loadCachedMessages(chatId);
+
+                  // 🔥 Fetch new messages in background
 
   Future<void> _loadCachedMessages(String chatId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -343,6 +607,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   });
                 },
 
+
+                leading: SizedBox(
+                  width: 56,   // ListTile default leading width
                 leading: SizedBox(
                   width: 56,
                   height: 56,
@@ -371,6 +638,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
 
                       // Safe initials calculation
+                      String initials = "?"; // fallback
                       String initials = "?";
                       if (chat['name'] != null && chat['name'].toString().trim().isNotEmpty) {
                         final names = chat['name']
@@ -382,6 +650,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (names.isNotEmpty) {
                           initials = names.length == 1
                               ? names[0][0].toUpperCase()
+                              : names[0][0].toUpperCase() + (names.length > 1 ? names[1][0].toUpperCase() : "");
                               : names[0][0].toUpperCase() +
                               (names.length > 1 ? names[1][0].toUpperCase() : "");
                         }
@@ -400,6 +669,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     },
                   ),
+
                 ),
 
                 title: Text(
@@ -521,6 +791,492 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
+  Future<void> _fetchMessages(String contactId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final url = Uri.parse("https://anantkamalwademo.online/api/wpbox/getMessages");
+      final body = jsonEncode({
+        "token": token,
+        "contact_id": int.tryParse(contactId) ?? 0,
+      });
+
+      final resp = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: body,
+      );
+
+      if (resp.statusCode != 200) return;
+
+      // ✔ Decode JSON IN BACKGROUND thread
+      final responseData = await compute(jsonDecode, resp.body);
+
+      if (!responseData.containsKey("data")) return;
+
+      List<dynamic> list = responseData["data"];
+      List<Map<String, dynamic>> loadedMessages = [];
+
+      String chatKey = "chat_$contactId";
+      int lastNotifiedId = _lastNotifiedMessageId[chatKey] ?? 0;
+      int highestMsgIdThisFetch = lastNotifiedId;
+
+      for (var m in list) {
+        bool isMe = m["is_message_by_contact"] == 0;
+        int msgId = m["id"] ?? 0;
+
+        // 🔔 Notification only when chat is closed
+        if (!isMe && msgId > lastNotifiedId && contactId != _selectedPhone) {
+          await showNotification(_selectedUser ?? "New Message", m["value"] ?? "");
+        }
+
+        if (msgId > highestMsgIdThisFetch) highestMsgIdThisFetch = msgId;
+
+        loadedMessages.add({
+          "type": m["header_image"] != "" ? "image" : "text",
+          "text": m["value"] ?? "",
+          "imageUrl": m["header_image"],
+          "isMe": isMe,
+          "time": m["created_at"]?.toString().substring(11, 16) ?? "",
+        });
+      }
+
+      _lastNotifiedMessageId[chatKey] = highestMsgIdThisFetch;
+      await _saveLastNotifiedMap();
+
+      if (mounted) {
+        setState(() {
+          _messages = loadedMessages;
+        });
+      }
+
+    } catch (e) {
+      print("❌ _fetchMessages error: $e");
+    }
+  }
+
+  Future<void> sendImage(File file) async {
+    setState(() {
+      _messages.insert(0, {
+        "type": "image",
+        "image": file.path,
+        "isMe": true,
+        "time": DateTime.now().toString().substring(11,16),
+        "sending": true,
+        "failed": false,
+      });
+    });
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("token");
+    if (token == null) return;
+
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse("https://anantkamalwademo.online/api/wpbox/sendmessage"),
+    );
+
+    request.fields['token'] = token;
+    request.fields['phone'] = _selectedPhone ?? '';
+    request.files.add(await http.MultipartFile.fromPath('image', file.path));
+
+    try {
+      var response = await request.send();
+      String res = await response.stream.bytesToString();
+      var decoded = jsonDecode(res);
+
+      int index = _messages.indexWhere((m) => m["image"] == file.path && m["sending"] == true);
+
+      if (decoded["status"] == "success") {
+        setState(() {
+          if (index != -1) {
+            _messages[index]["sending"] = false;
+            _messages[index]["wamid"] = decoded["message_wamid"]; // optional
+          }
+          _selectedImage = null;
+        });
+      } else {
+        setState(() {
+          if (index != -1) {
+            _messages[index]["sending"] = false;
+            _messages[index]["failed"] = true;
+          }
+        });
+      }
+    } catch (e) {
+      print("❌ sendImage error: $e");
+      int index = _messages.indexWhere((m) => m["image"] == file.path && m["sending"] == true);
+      if (index != -1) {
+        setState(() {
+          _messages[index]["sending"] = false;
+          _messages[index]["failed"] = true;
+        });
+      }
+    }
+  }
+
+
+  Future<void> _fetchConversationsAndPopulate({bool loadMore = false}) async {
+    if (_isLoadingMore || (!_hasMore && loadMore)) return;
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null) return;
+
+      final url = Uri.parse(
+          "https://anantkamalwademo.online/api/wpbox/getConversations/none?mobile_api=true&page=$_currentPage&per_page=$_perPage");
+
+      final body = jsonEncode({"token": token});
+      final resp = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      );
+
+      if (resp.statusCode != 200) return;
+
+      final Map<String, dynamic> data = json.decode(resp.body);
+
+      List<dynamic>? conversations;
+      if (data.containsKey('conversations')) {
+        conversations = data['conversations'];
+      } else if (data.containsKey('contacts')) {
+        conversations = data['contacts'];
+      } else if (data.containsKey('data')) {
+        conversations = data['data'];
+      }
+
+      if (conversations == null || conversations.isEmpty) {
+        if (!mounted) return;
+        setState(() => _hasMore = false);
+        return;
+      }
+
+      final List<Map<String, dynamic>> fetched = conversations.map((c) {
+        return {
+          'id': (c['id'] ?? c['conversation_id'] ?? '').toString(),
+          'name': (c['name'] ?? (c['title'] ?? c['contact_name'] ?? 'Unknown')).toString(),
+          'message': _extractMessage(
+              c['last_message'] ??
+                  c['last_message_text'] ??
+                  c['last_sender_message'] ??
+                  c['last_message_data'] ??
+                  ""),
+          'last_message_id': int.tryParse(c['last_message_id']?.toString() ?? '') ??
+              DateTime.tryParse(c['last_reply_at'] ?? '')?.millisecondsSinceEpoch ??
+              DateTime.now().millisecondsSinceEpoch,
+          'time': (c['last_reply_at'] ?? c['updated_at'] ?? c['last_message_time'] ?? '').toString(),
+          'unread': c['unread'] ?? c['unread_count'] ?? 0,
+          'avatar': (c['avatar'] ?? ''),
+          'phone': (c['phone'] ?? c['msisdn'] ?? c['number'] ?? '').toString().trim(),
+          'raw': c,
+        };
+      }).toList();
+
+      // 🔔 Trigger notifications for **every new message**
+      for (var chat in fetched) {
+        String chatId = chat['id'];
+        int lastMsgId = chat['last_message_id'];
+
+        int lastNotifiedId = _lastNotifiedMessageId[chatId] ?? 0;
+
+        // If this is a new message, trigger notification
+        if (lastMsgId > lastNotifiedId) {
+          // Don't suppress notifications for open chat
+          await showNotification(chat['name'], chat['message']);
+
+          // Update last notified ID
+          _lastNotifiedMessageId[chatId] = lastMsgId;
+          await _saveLastNotifiedMap();
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        if (loadMore) {
+          _chats.addAll(fetched);
+        } else {
+          _chats = fetched;
+        }
+
+        _chats.sort((a, b) {
+          DateTime aTime = DateTime.tryParse(a['time'] ?? '') ?? DateTime(1970);
+          DateTime bTime = DateTime.tryParse(b['time'] ?? '') ?? DateTime(1970);
+          return bTime.compareTo(aTime);
+        });
+
+        _isLoadingMore = false;
+        _currentPage++;
+      });
+
+      if (mounted) widget.onChatCountChange(_chats.length);
+
+    } catch (e) {
+      print("❌ FETCH CONVERSATIONS ERROR: $e");
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
+
+  Future<void> _saveLastNotifiedMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('lastNotifiedMap', jsonEncode(_lastNotifiedMessageId));
+  }
+
+  Future<void> _loadLastNotifiedMap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString('lastNotifiedMap');
+    if (stored != null) {
+      _lastNotifiedMessageId = Map<String, int>.from(
+        jsonDecode(stored).map((k, v) => MapEntry(k, v as int)),
+      );
+    }
+  }
+
+  String _extractMessage(dynamic msg) {
+    if (msg == null) return '';
+    if (msg is String) return msg;
+    if (msg is Map) {
+      if (msg.containsKey("message")) return msg["message"].toString();
+      if (msg.containsKey("content")) return msg["content"].toString();
+      if (msg.containsKey("text")) return msg["text"].toString();
+    }
+    return msg.toString();
+  }
+
+  Future<void> _refreshChats() async {
+    await _fetchConversationsAndPopulate(); // reload chat list from API
+
+  Future<void> sendMessage({bool isButton = false}) async {
+    print("🔹 sendMessage called");
+
+    if (_selectedPhone == null) {
+      print("❌ No phone selected");
+      return;
+    }
+
+    String text = _messageController.text.trim();
+    if (text.isEmpty && !isButton) {
+      print("❌ Message text empty");
+      return;
+    }
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString("token");
+    if (token == null) {
+      print("❌ No token saved in SharedPreferences");
+      return;
+    }
+
+    final uri = Uri.parse("https://anantkamalwademo.online/api/wpbox/sendmessage");
+    print("🌐 API URL => $uri");
+
+    final Map<String, Object> body = {
+      "token": token,
+      "phone": _selectedPhone!.trim(),
+      "message": text,
+    };
+
+    print("📤 Request body => $body");
+
+    try {
+      final res = await http.post(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: jsonEncode(body),
+      );
+
+      print("📥 Response status => ${res.statusCode}");
+      print("📥 Raw Response => ${res.body}");
+
+      final decoded = jsonDecode(res.body);
+
+      if (decoded["status"] == "success") {
+        print("✅ API success");
+
+        // Add message locally with proper DateTime
+        setState(() {
+          _messages.add({
+            "text": text,
+            "isMe": true,
+            "time": DateTime.now().toIso8601String(), // store ISO string
+            "wamid": decoded["message_wamid"],
+          });
+        });
+
+        _messageController.clear();
+
+        // Scroll to bottom after sending
+        _scrollController.animateTo(
+          0.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } else {
+        print("❌ API returned failure => ${decoded["message"]}");
+      }
+    } catch (e) {
+      print("❌ Catch exception: $e");
+    }
+  }
+
+  Widget _chatView() {
+    return  WillPopScope(
+      onWillPop: () async {
+        // 1) If image preview is open → close it
+        if (_previewImagePath != null) {
+          setState(() => _previewImagePath = null);
+          return false;
+        }
+
+        // 2) If selection mode is active → exit selection mode
+        if (_isSelectionMode) {
+          setState(() {
+            _selectedMessageIndexes.clear();
+            _isSelectionMode = false;
+          });
+          return false;
+        }
+
+        // 3) If quick options popup open → close it
+        if (_showQuickOptions) {
+          setState(() => _showQuickOptions = false);
+          return false;
+        }
+
+        // 4) If attachment popup open → close it
+        if (_showAttachmentOptions) {
+          setState(() => _showAttachmentOptions = false);
+          return false;
+        }
+
+        // 5) OTHERWISE → allow back to ChatScreen parent
+        return true;
+      },
+      child: Builder(
+        builder: (context) {
+          return SafeArea(
+            top: false,
+            child: Stack(
+              children: [
+                // Chat messages
+                Container(
+                  decoration: const BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage("assets/img.png"),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            bool isMe = msg['isMe'] == true;
+
+                            if (msg["type"] == "image") {
+                              final networkUrl = msg["imageUrl"];
+                              final localPath = msg["image"];
+                              final time = msg["time"] ?? DateTime.now().toString().substring(11, 16);
+
+                              return Align(
+                                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                child: GestureDetector(
+                                    onLongPress: () {
+                                      setState(() {
+                                        _isSelectionMode = true;
+                                        _selectedMessageIndexes.add(index);
+                                      });
+                                    },
+                                    onTap: () {
+                                      if (_isSelectionMode) {
+                                        setState(() {
+                                          if (_selectedMessageIndexes.contains(index)) {
+                                            _selectedMessageIndexes.remove(index);
+                                            if (_selectedMessageIndexes.isEmpty) _isSelectionMode = false;
+                                          } else {
+                                            _selectedMessageIndexes.add(index);
+                                          }
+                                        });
+                                      } else {
+                                        setState(() {
+                                          _previewImagePath = localPath ?? networkUrl;
+                                          _showPreviewAppBar = true;
+                                        });
+                                      }
+                                    },
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Flexible(
+                                          child: Container(
+                                            margin: const EdgeInsets.symmetric(vertical: 4),
+                                            decoration: BoxDecoration(
+                                              boxShadow: _selectedMessageIndexes.contains(index)
+                                                  ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.5), blurRadius: 8)]
+                                                  : null,
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: localPath != null
+                                                  ? Image.file(
+                                                File(localPath),
+                                                width: 200,
+                                                height: 200,
+                                                fit: BoxFit.cover,
+                                              )
+                                                  : Image.network(
+                                                networkUrl ?? "https://via.placeholder.com/200",
+                                                width: 200,
+                                                height: 200,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
+                                        const SizedBox(width: 4),
+
+                                        Transform(
+                                          alignment: Alignment.center,
+                                          transform: Matrix4.identity()
+                                            ..rotateY(3.1416)
+                                            ..rotateZ(0.1),
+                                          child: IconButton(
+                                            icon: Icon(Icons.reply_all, color: Colors.white, size: 22),
+                                            onPressed: () {},
+                                          ),
+                                        ),
+                                      ],
+                                    )
+
+                                ),
+                              );
+
+                            }
+
+
+
+                            // Existing text message rendering
   Future<void> _fetchMessages(String contactId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -867,6 +1623,34 @@ class _ChatScreenState extends State<ChatScreen> {
                                         _selectedMessageIndexes.add(index);
                                       }
                                     });
+                                  }
+                                },
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.symmetric(vertical: 4),
+                                      padding: const EdgeInsets.fromLTRB(14, 10, 50, 18), // extra padding for time
+                                      decoration: BoxDecoration(
+                                        color: isMe
+                                            ? Colors.green.shade400
+                                            : Colors.white.withOpacity(0.98),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(12),
+                                          topRight: const Radius.circular(12),
+                                          bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+                                          bottomRight: isMe ? Radius.zero : const Radius.circular(12),
+                                        ),
+                                        boxShadow: _selectedMessageIndexes.contains(index)
+                                            ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.5), blurRadius: 8)]
+                                            : null,
+                                      ),
+                                      child: Text(
+                                        msg['text'] ?? '',
+                                        style: TextStyle(
+                                          color: isMe ? Colors.white : Colors.black87,
+                                          fontSize: 14,
+                                        ),
+                                      ),
                                   } else {
                                     setState(() {
                                       _previewImagePath = localPath ?? networkUrl;
@@ -976,8 +1760,28 @@ class _ChatScreenState extends State<ChatScreen> {
                                         fontSize: 14,
                                       ),
                                     ),
-                                  ),
 
+                                    // Timestamp inside bubble
+                                    Positioned(
+                                      bottom: 4,
+                                      right: 8,
+                                      child: Text(
+                                        msg['time'] ?? DateTime.now().toString().substring(11, 16), // HH:mm
+                                        style: TextStyle(
+                                          color: isMe ? Colors.white70 : Colors.black54,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+
+                              ),
+                            );
+
+                          },
+                        ),
                                   // Timestamp inside bubble
                                   Positioned(
                                     bottom: 4,
@@ -999,9 +1803,215 @@ class _ChatScreenState extends State<ChatScreen> {
 
                         },
                       ),
+
+
+                      if (_selectedImage != null || _selectedFile != null)
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(
+                            _selectedImage != null
+                                ? '📸 Image selected'
+                                : _selectedFile != null
+                                ? '📄 File selected'
+                                : '',
+                            style: const TextStyle(color: Colors.black54),
+                          ),
+                        ),
+                      if (_previewImagePath == null) _chatInput(),
+
+                    ],
+                  ),
+                ),
+
+                // Attachment popup
+                if (_showAttachmentOptions)
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 60),
+                      child: Material(
+                        borderRadius: BorderRadius.circular(16),
+                        elevation: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _popupButton(Icons.image_outlined, "Image",
+                                  onTap: _openImagePickerDialog),
+                              _popupButton(Icons.picture_as_pdf_outlined, "File",
+                                  onTap: _pickFile),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
+                  ),
+
+                if (_previewImagePath != null)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _showPreviewAppBar = !_showPreviewAppBar;
+                        });
+                      },
+                      child: Container(
+                        color: Colors.black,
+                        child: Stack(
+                          children: [
+
+                            /// Main preview image
+                            Center(
+                              child: InteractiveViewer(
+                                child: _previewImagePath!.startsWith("http")
+                                    ? Image.network(_previewImagePath!)
+                                    : Image.file(File(_previewImagePath!)),
+                              ),
+                            ),
+
+                            /// TOP OVERLAY (WhatsApp style)
+                            AnimatedPositioned(
+                              duration: Duration(milliseconds: 200),
+                              top: _showPreviewAppBar ? 0 : -80,
+                              left: 0,
+                              right: 0,
+                              child: SafeArea(
+                                child: Container(
+                                  height: 80,
+                                  padding: EdgeInsets.symmetric(horizontal: 10),
+                                  color: Colors.black54,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(Icons.arrow_back,
+                                            color: Colors.white, size: 26),
+                                        onPressed: () {
+                                          setState(() {
+                                            _previewImagePath = null;
+                                          });
+                                        },
+                                      ),
+                                      Row(
+                                        children: [
+                                          Transform(
+                                            alignment: Alignment.center,
+                                            transform: Matrix4.identity()
+                                              ..rotateY(3.1416)        // flip horizontally
+                                              ..rotateZ(0.1),          // tilt to the right
+                                            child: Icon(
+                                              Icons.reply_all,
+                                              color: Colors.white,
+                                              size: 23,
+                                            ),
+                                          ),
 
 
+
+
+                                          SizedBox(width: 10),
+                                          Icon(Icons.more_vert,
+                                              color: Colors.white, size: 26),
+                                        ],
+                                      )
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            /// BOTTOM REPLY BAR
+                            AnimatedPositioned(
+                              duration: Duration(milliseconds: 200),
+                              bottom: _showPreviewAppBar ? 0 : -100,
+                              left: 0,
+                              right: 0,
+                              child: SafeArea(
+                                child: Container(
+                                  height: 60,
+                                  padding: EdgeInsets.symmetric(horizontal: 10),
+                                  color: Colors.black54,
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.reply, color: Colors.white, size: 28),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        "Reply",
+                                        style:
+                                        TextStyle(color: Colors.white, fontSize: 18),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // After the full-screen image preview and quick options popup
+                if (_isSelectionMode)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      color: Colors.black54,
+                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.delete, color: Colors.white),
+                            onPressed: () {
+                              setState(() {
+                                _selectedMessageIndexes.toList().sort((b, a) => a.compareTo(b));
+                                for (var i in _selectedMessageIndexes) {
+                                  _messages.removeAt(i);
+                                }
+                                _selectedMessageIndexes.clear();
+                                _isSelectionMode = false;
+                              });
+                            },
+                          ),
+                          SizedBox(width: 10),
+                          IconButton(
+                            icon: Icon(Icons.reply_all, color: Colors.white),
+                            onPressed: () {
+                              print("Forward selected messages");
+                            },
+                          ),
+                          SizedBox(width: 10),
+                          IconButton(
+                            icon: Icon(Icons.close, color: Colors.white),
+                            onPressed: () {
+                              setState(() {
+                                _selectedMessageIndexes.clear();
+                                _isSelectionMode = false;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (_showQuickOptions)
+                  Positioned.fill(
+                    child: _quickOptionsPopup(),
+                  ),
+              ],
+            ),
+          );
+        }
+      ),
+    );
                     if (_selectedImage != null || _selectedFile != null)
                       Padding(
                         padding: const EdgeInsets.all(8.0),
@@ -1586,6 +2596,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
+
+
+
+
+
+
+
 class _BottomIcon extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -1962,6 +2979,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       ],
     );
   }
+}
 
 }
 
