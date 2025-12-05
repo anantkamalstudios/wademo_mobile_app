@@ -17,8 +17,6 @@ FlutterLocalNotificationsPlugin();
 
 /// Tracks the currently open chat phone to skip notifications
 String? _currentOpenChatId;
-
-
 /// Background message handler
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
@@ -217,3 +215,6 @@ void setCurrentOpenChat(String phone) {
 void clearCurrentOpenChat() {
   _currentOpenChatId = null;
 }
+
+
+//pranjal
