@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 
 import '../main.dart';
@@ -50,6 +51,29 @@ class _HomeScreenState extends State<HomeScreen> {
     displayName = user?.displayName ?? "User"; // fallback
     fetchCampaignCount();
     fetchContactsCount();
+    _loadProfileName();
+
+  }
+
+  Future<void> _loadProfileName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedName = prefs.getString("name");
+
+    if (savedName != null && savedName.trim().isNotEmpty) {
+      setState(() {
+        displayName = savedName;     // <-- override display name
+      });
+    }
+  }
+
+
+
+  Future<void> openDashboard() async {
+    final Uri url = Uri.parse("https://anantkamalwademo.online/");
+
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      throw Exception("Could not launch $url");
+    }
   }
 
   void _handleChatState(bool isOpen) {
@@ -131,27 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Stack(
                 children: [
                   const Icon(Icons.chat_bubble_outline),
-                  Positioned(
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const CircleAvatar(
-                        radius: 6,
-                        backgroundColor: Colors.green,
-                        child: Text(
-                          '6',
-                          style: TextStyle(
-                              fontSize: 8,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ),
+
                 ],
               ),
               label: 'Chats',
@@ -271,21 +275,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              "Get Started",
-                              style: TextStyle(
-                                color: darkGreen,
-                                fontWeight: FontWeight.w700,
+                          InkWell(
+                            onTap: openDashboard,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                "Get Started",
+                                style: TextStyle(
+                                  color: darkGreen,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                          ),
+                          )
+
                         ],
                       ),
                     ),
@@ -294,104 +302,125 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
 
               const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: "All Chats",
-                            value: totalChats.toString(),
-                            sub: "184.62% Open rate",
-                            icon: Icons.chat_bubble_outline,
-                            bgIcon: softGreen,
-                          ),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _currentIndex = 1),
+                        child: _StatCard(
+                          title: "All Chats",
+                          value: totalChats.toString(),
+                          sub: "184.62% Open rate",
+                          icon: Icons.chat_bubble_outline,
+                          bgIcon: softGreen,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _StatCard(
-                            title: "Templates",
-                            value: "23",
-                            sub: "23 Approved",
-                            icon: Icons.folder_open,
-                            bgIcon: Color(0xFFEAF6F0),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child:_StatCard(
-                            title: "Contact",
-                            value: totalContacts.toString(),
-                            sub: "1 new this month",
-                            icon: Icons.contact_page,
-                            bgIcon: Color(0xFFEAF6F0),
-                          ),
-
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        // onTap: () => setState(() => _currentIndex = 1),
+                        child: _StatCard(
+                          title: "Templates",
+                          value: "23",
+                          sub: "23 Approved",
+                          icon: Icons.folder_open,
+                          bgIcon: Color(0xFFEAF6F0),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _StatCard(
-                            title: "Campaigns",
-                            value: totalCampaigns.toString(), // ✔ Same count as Campaign screen
-                            sub: "92.5% Read rate",
-                            icon: Icons.send,
-                            bgIcon: Color(0xFFEAF6F0),
-                          ),
-                        ),
-
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
+                  ],
+                ),
 
-                    // Recent Campaigns Card
-                    _CardContainer(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _currentIndex = 3),
+                        child: _StatCard(
+                          title: "Contact",
+                          value: totalContacts.toString(),
+                          sub: "1 new this month",
+                          icon: Icons.contact_page,
+                          bgIcon: Color(0xFFEAF6F0),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => setState(() => _currentIndex = 2),
+                        child: _StatCard(
+                          title: "Campaigns",
+                          value: totalCampaigns.toString(),
+                          sub: "92.5% Read rate",
+                          icon: Icons.send,
+                          bgIcon: Color(0xFFEAF6F0),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Recent Campaigns Card
+                // Recent Campaigns Card
+                InkWell(
+                  onTap: () => setState(() => _currentIndex = 1),
+                  child: _CardContainer(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Recent Campaigns",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        if (recentCampaigns.isEmpty)
                           const Text(
-                            "Recent Campaigns",
+                            "No Recent Campaigns",
                             style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black54,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          if (recentCampaigns.isEmpty)
-                            const Text(
-                              "No Recent Campaigns",
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black54,
-                              ),
+
+                        ...recentCampaigns.map((item) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.grey.shade200),
                             ),
-                          ...recentCampaigns.map((item) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.grey.shade200),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: softGreen,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.send, color: midGreen),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: softGreen,
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Column(
+                                  child: const Icon(Icons.send, color: midGreen),
+                                ),
+                                const SizedBox(width: 12),
+
+                                // ✅ Wrap Column with Expanded to prevent overflow
+                                Expanded(
+                                  child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
@@ -399,6 +428,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w600,
                                         ),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
                                       ),
                                       const SizedBox(height: 6),
                                       Text(
@@ -407,22 +438,28 @@ class _HomeScreenState extends State<HomeScreen> {
                                           fontSize: 12,
                                           color: Colors.black54,
                                         ),
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
                                       ),
                                     ],
                                   ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                        ],
-                      ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ],
                     ),
-
-                    const SizedBox(height: 30),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+
+
+                const SizedBox(height: 30),
+              ],
+            ),
+          )
+
+          ],
           ),
         ),
       ),

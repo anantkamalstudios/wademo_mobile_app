@@ -58,6 +58,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Map<String,int> lastMessagePerChat = {};
 
+  // In your State class
+  Map<String, dynamic>? _replyingToMessage; // The message being replied to
+
+
 
 
   bool _isLoadingMore = false;
@@ -136,8 +140,6 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-
-  @override
   @override
   Widget build(BuildContext context) {
     List<Map<String, dynamic>> filteredChats = _chats
@@ -258,7 +260,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
 
-
   Future<void> showNotification(String name, String message) async {
     var android = const AndroidNotificationDetails(
       'chat_channel',
@@ -279,11 +280,6 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _cacheMessages(String chatId, List<Map<String, dynamic>> messages) async {
-    final prefs = await SharedPreferences.getInstance();
-    prefs.setString("cached_$chatId", jsonEncode(messages));
-  }
-
 
   Future<void> _loadCachedMessages(String chatId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -298,7 +294,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
 
-
   Widget _chatListView(List<Map<String, dynamic>> chats) {
     if (chats.isEmpty) {
       return const Center(
@@ -309,9 +304,9 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    return SafeArea( // 🔹 Wrap entire chat list
-      top: false,   // already handled by global SafeArea in Scaffold
-      bottom: true, // ensure content above gesture bar
+    return SafeArea(
+      top: false,
+      bottom: true,
       child: RefreshIndicator(
         onRefresh: _refreshChats,
         child: NotificationListener<ScrollNotification>(
@@ -324,17 +319,11 @@ class _ChatScreenState extends State<ChatScreen> {
             return false;
           },
           child: ListView.separated(
-            itemCount: chats.length + (_hasMore ? 1 : 0),
+            itemCount: chats.length, // ✅ removed +1 for loader
             separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
             itemBuilder: (context, index) {
-              if (index == chats.length) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-
               final chat = chats[index];
+
               return ListTile(
                 onTap: () async {
                   String chatId = chat['id'].toString();
@@ -345,18 +334,17 @@ class _ChatScreenState extends State<ChatScreen> {
                     _selectedPhone = chat['phone'].toString();
                   });
 
-                  // 🚀 Show cached messages instantly
+                  // Show cached messages instantly
                   await _loadCachedMessages(chatId);
 
-                  // 🔥 Fetch new messages in background
+                  // Fetch new messages in background
                   Future.microtask(() async {
                     await _fetchMessages(chatId);
                   });
                 },
 
-
                 leading: SizedBox(
-                  width: 56,   // ListTile default leading width
+                  width: 56,
                   height: 56,
                   child: FutureBuilder<String?>(
                     future: _getSavedAvatar(chat['name']),
@@ -383,7 +371,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
 
                       // Safe initials calculation
-                      String initials = "?"; // fallback
+                      String initials = "?";
                       if (chat['name'] != null && chat['name'].toString().trim().isNotEmpty) {
                         final names = chat['name']
                             .toString()
@@ -394,7 +382,8 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (names.isNotEmpty) {
                           initials = names.length == 1
                               ? names[0][0].toUpperCase()
-                              : names[0][0].toUpperCase() + (names.length > 1 ? names[1][0].toUpperCase() : "");
+                              : names[0][0].toUpperCase() +
+                              (names.length > 1 ? names[1][0].toUpperCase() : "");
                         }
                       }
 
@@ -411,7 +400,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       );
                     },
                   ),
-
                 ),
 
                 title: Text(
@@ -532,7 +520,6 @@ class _ChatScreenState extends State<ChatScreen> {
       print("❌ Catch exception: $e");
     }
   }
-
 
   Future<void> _fetchMessages(String contactId) async {
     try {
@@ -665,9 +652,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isLoadingMore || (!_hasMore && loadMore)) return;
     if (!mounted) return;
 
-    setState(() {
-      _isLoadingMore = true;
-    });
+    setState(() => _isLoadingMore = true);
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -677,11 +662,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final url = Uri.parse(
           "https://anantkamalwademo.online/api/wpbox/getConversations/none?mobile_api=true&page=$_currentPage&per_page=$_perPage");
 
-      final body = jsonEncode({"token": token});
       final resp = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: body,
+        body: jsonEncode({"token": token}),
       );
 
       if (resp.statusCode != 200) return;
@@ -703,44 +687,39 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      final List<Map<String, dynamic>> fetched = conversations.map((c) {
-        return {
-          'id': (c['id'] ?? c['conversation_id'] ?? '').toString(),
-          'name': (c['name'] ?? (c['title'] ?? c['contact_name'] ?? 'Unknown')).toString(),
-          'message': _extractMessage(
-              c['last_message'] ??
-                  c['last_message_text'] ??
-                  c['last_sender_message'] ??
-                  c['last_message_data'] ??
-                  ""),
-          'last_message_id': int.tryParse(c['last_message_id']?.toString() ?? '') ??
-              DateTime.tryParse(c['last_reply_at'] ?? '')?.millisecondsSinceEpoch ??
-              DateTime.now().millisecondsSinceEpoch,
-          'time': (c['last_reply_at'] ?? c['updated_at'] ?? c['last_message_time'] ?? '').toString(),
-          'unread': c['unread'] ?? c['unread_count'] ?? 0,
-          'avatar': (c['avatar'] ?? ''),
-          'phone': (c['phone'] ?? c['msisdn'] ?? c['number'] ?? '').toString().trim(),
-          'raw': c,
-        };
-      }).toList();
-
-      // 🔔 Trigger notifications for **every new message**
-      for (var chat in fetched) {
-        String chatId = chat['id'];
-        int lastMsgId = chat['last_message_id'];
-
-        int lastNotifiedId = _lastNotifiedMessageId[chatId] ?? 0;
-
-        // If this is a new message, trigger notification
-        if (lastMsgId > lastNotifiedId) {
-          // Don't suppress notifications for open chat
-          await showNotification(chat['name'], chat['message']);
-
-          // Update last notified ID
-          _lastNotifiedMessageId[chatId] = lastMsgId;
-          await _saveLastNotifiedMap();
-        }
-      }
+      // ✅ Only existing chats
+      final List<Map<String, dynamic>> fetched = conversations
+          .where((c) =>
+      c['last_message'] != null ||
+          c['last_message_text'] != null ||
+          c['last_sender_message'] != null)
+          .map((c) => {
+        'id': (c['id'] ?? c['conversation_id'] ?? '').toString(),
+        'name': (c['name'] ??
+            (c['title'] ?? c['contact_name'] ?? 'Unknown'))
+            .toString(),
+        'message': _extractMessage(
+            c['last_message'] ??
+                c['last_message_text'] ??
+                c['last_sender_message'] ??
+                c['last_message_data'] ??
+                ""),
+        'last_message_id': int.tryParse(c['last_message_id']?.toString() ?? '') ??
+            DateTime.tryParse(c['last_reply_at'] ?? '')?.millisecondsSinceEpoch ??
+            DateTime.now().millisecondsSinceEpoch,
+        'time': (c['last_reply_at'] ??
+            c['updated_at'] ??
+            c['last_message_time'] ??
+            '')
+            .toString(),
+        'unread': c['unread'] ?? c['unread_count'] ?? 0,
+        'avatar': (c['avatar'] ?? ''),
+        'phone': (c['phone'] ?? c['msisdn'] ?? c['number'] ?? '')
+            .toString()
+            .trim(),
+        'raw': c,
+      })
+          .toList();
 
       if (!mounted) return;
       setState(() {
@@ -750,6 +729,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _chats = fetched;
         }
 
+        // Sort by latest message
         _chats.sort((a, b) {
           DateTime aTime = DateTime.tryParse(a['time'] ?? '') ?? DateTime(1970);
           DateTime bTime = DateTime.tryParse(b['time'] ?? '') ?? DateTime(1970);
@@ -761,13 +741,25 @@ class _ChatScreenState extends State<ChatScreen> {
       });
 
       if (mounted) widget.onChatCountChange(_chats.length);
-
     } catch (e) {
       print("❌ FETCH CONVERSATIONS ERROR: $e");
       if (!mounted) return;
       setState(() => _isLoadingMore = false);
     }
   }
+
+
+
+  void _openChat(Map<String, dynamic> chat) {
+    setState(() {
+      _isChatOpen = true;
+      _selectedUser = chat['name'];
+      _selectedPhone = chat['phone'];
+    });
+    _loadCachedMessages(chat['id']);
+    Future.microtask(() => _fetchMessages(chat['id']));
+  }
+
 
 
   Future<void> _saveLastNotifiedMap() async {
@@ -797,17 +789,32 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _refreshChats() async {
-    await _fetchConversationsAndPopulate(); // reload chat list from API
+    _currentPage = 1; // reset pagination
+    _hasMore = true;
 
-    // Optionally, refresh current chat messages too
+    if (!mounted) return;
+
+    // Clear old chats to avoid duplicates temporarily showing
+    setState(() {
+      _chats = [];
+    });
+
+    // Fetch chats from API (will replace _chats because loadMore = false)
+    await _fetchConversationsAndPopulate(loadMore: false);
+
+    // Optionally, refresh current chat messages
     if (_isChatOpen && _selectedPhone != null) {
       final chat = _chats.firstWhere(
-              (c) => c['phone'].toString() == _selectedPhone.toString(),
-          orElse: () => {});
+            (c) => c['phone'].toString() == _selectedPhone.toString(),
+        orElse: () => {},
+      );
       if (chat.isNotEmpty) {
         await _fetchMessages(chat['id'].toString());
       }
     }
+
+    // Update chat count
+    widget.onChatCountChange(_chats.length);
   }
 
   Widget _chatView() {
@@ -1641,83 +1648,36 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   bool chatExpanded = false;
   bool customExpanded = false;
 
+  late TextEditingController nameCtrl;
+  late TextEditingController phoneCtrl;
+  late TextEditingController emailCtrl;
+  late TextEditingController countryCtrl;
+  late TextEditingController statusCtrl;
+
+
+  bool isEditing = false;
+
+
   bool aiBotEnabled = false;
-  File? _pickedImage;
+
 
   @override
   void initState() {
     super.initState();
     aiBotEnabled = widget.aiBotEnabled;
-    _loadSavedImage();
+
+
+    nameCtrl = TextEditingController(text: widget.name);
+    phoneCtrl = TextEditingController(text: widget.phone);
+    emailCtrl = TextEditingController(text: widget.email);
+    countryCtrl = TextEditingController(text: widget.country);
+    statusCtrl = TextEditingController(text: widget.subscriptionStatus);
+
   }
 
-  /// Load saved image path from SharedPreferences
-  Future<void> _loadSavedImage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final path = prefs.getString('saved_profile_image');
-    if (path != null && File(path).existsSync()) {
-      setState(() {
-        _pickedImage = File(path);
-      });
-    }
-  }
-
-  /// Save image path to SharedPreferences
-  Future<void> _saveImagePath(String path) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('saved_profile_image', path);
-  }
 
   /// Image picker
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Colors.teal),
-              title: const Text("Choose from Gallery"),
-              onTap: () async {
-                final pickedFile =
-                await picker.pickImage(source: ImageSource.gallery);
-                if (pickedFile != null) {
-                  setState(() {
-                    _pickedImage = File(pickedFile.path);
-                  });
-                  await _saveImagePath(pickedFile.path);
-                  widget.onAvatarUpdated?.call(pickedFile.path);
-                }
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.teal),
-              title: const Text("Take a Photo"),
-              onTap: () async {
-                final pickedFile =
-                await picker.pickImage(source: ImageSource.camera);
-                if (pickedFile != null) {
-                  setState(() {
-                    _pickedImage = File(pickedFile.path);
-                  });
-                  await _saveImagePath(pickedFile.path);
-                }
-                Navigator.pop(context);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1738,13 +1698,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         centerTitle: true,
         actions: [
           TextButton(
-            onPressed: () {},
-            child: const Text(
-              "Edit",
-              style: TextStyle(color: Colors.teal, fontWeight: FontWeight.w600),
+            onPressed: () {
+              setState(() {
+                isEditing = !isEditing;
+              });
+            },
+            child: Text(
+              isEditing ? "Save" : "Edit",
+              style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w600),
             ),
           ),
         ],
+
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -1753,37 +1718,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             // Profile section
             Column(
               children: [
-                Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    GestureDetector(
-                      onTap: _pickImage,
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundColor: Colors.teal.shade50,
-                        backgroundImage: _pickedImage != null
-                            ? FileImage(_pickedImage!)
-                            : NetworkImage(widget.avatar) as ImageProvider,
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 2,
-                      child: GestureDetector(
-                        onTap: _pickImage,
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.teal,
-                          ),
-                          padding: const EdgeInsets.all(6),
-                          child: const Icon(Icons.edit,
-                              color: Colors.white, size: 16),
-                        ),
-                      ),
-                    ),
-                  ],
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor: Colors.teal.shade50,
+                  backgroundImage: NetworkImage(widget.avatar),
                 ),
+
                 const SizedBox(height: 12),
                 Text(
                   widget.name,
@@ -1833,9 +1773,6 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   ),
                 ),
                 onPressed: () {
-                  if (_pickedImage != null) {
-                    widget.onAvatarUpdated?.call(_pickedImage!.path);
-                  }
                   Navigator.pop(context);
                 },
                 child: const Text(
@@ -1892,19 +1829,53 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _readonlyField("Name", widget.name),
-          const SizedBox(height: 8),
-          _readonlyField("Phone", widget.phone),
-          const SizedBox(height: 8),
-          _readonlyField("Email", widget.email),
-          const SizedBox(height: 8),
-          _readonlyField("Country", widget.country),
-          const SizedBox(height: 8),
-          _readonlyField("Subscription Status", widget.subscriptionStatus),
+          _editableField("Name", nameCtrl.text, nameCtrl),
+          SizedBox(height: 8),
+          _editableField("Phone", phoneCtrl.text, phoneCtrl),
+          SizedBox(height: 8),
+          _editableField("Email", emailCtrl.text, emailCtrl),
+          SizedBox(height: 8),
+          _editableField("Country", countryCtrl.text, countryCtrl),
+          SizedBox(height: 8),
+          _editableField("Subscription Status", statusCtrl.text, statusCtrl),
         ],
       ),
     );
   }
+
+  Widget _readonlyField(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+
 
   /// CHAT DETAILS SECTION
   Widget _buildChatDetails() {
@@ -1914,25 +1885,29 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _readonlyField("Created At", widget.createdAt),
-          const SizedBox(height: 8),
-          _readonlyField("Status", widget.status),
-          const SizedBox(height: 8),
-          _readonlyField("Last Activity", widget.lastActivity),
-          const SizedBox(height: 8),
-          _readonlyField("Language", widget.language),
-          const SizedBox(height: 8),
+          _readonlyField("Created At", widget.createdAt?.toString() ?? ""),
+          SizedBox(height: 8),
 
-          // ✅ AI Bot Enabled (Toggle)
+          _readonlyField("Status", widget.status?.toString() ?? ""),
+          SizedBox(height: 8),
+
+          _readonlyField("Last Activity", widget.lastActivity?.toString() ?? ""),
+          SizedBox(height: 8),
+
+          _readonlyField("Language", widget.language?.toString() ?? ""),
+          SizedBox(height: 8),
+
+          // AI Bot Enabled Toggle
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 "AI Bot Enabled",
                 style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.teal,
-                    fontSize: 14),
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal,
+                  fontSize: 14,
+                ),
               ),
               Switch(
                 activeColor: Colors.teal,
@@ -1948,8 +1923,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     );
   }
 
+
   /// Reusable readonly display field
-  Widget _readonlyField(String label, String value) {
+  Widget _editableField(String label, String value, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1959,7 +1935,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               fontWeight: FontWeight.w600, color: Colors.teal, fontSize: 14),
         ),
         const SizedBox(height: 4),
-        Container(
+        isEditing
+            ? TextFormField(
+          controller: controller,
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+        )
+            : Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
@@ -1975,6 +1962,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       ],
     );
   }
+
 }
 
 
